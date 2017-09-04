@@ -5,35 +5,59 @@ from keras.layers import Input, concatenate, Conv2D, MaxPooling2D, Conv2DTranspo
 
 from keras.optimizers import Adam, RMSprop
 
-from keras.layers import LeakyReLU, Dropout
+from keras.layers import LeakyReLU, Dropout, Activation
+
+## # -------------------------------------------------------------------------------------------------
+## def make_gen_unit(name,conv,filters,skip=None,conv_kernel=(1,1),conv_pool=(2,1),deconv_kernel=(1,1),deconv_strides=(2, 1)):
+## 
+##     if skip != None:
+##         up = concatenate( [Conv2DTranspose(filters, deconv_kernel, name="%s_deconv"%name, strides=deconv_strides, padding='same')(conv), skip], axis=3)
+##     else:
+##         up = conv
+## 
+##     norm0 = BatchNormalization(name="%s_bn0" % name,momentum=0.9)(up)
+##     conv0 = Conv2D(filters,conv_kernel,name="%s_conv0"%name, activation='relu', padding='same')(norm0)
+##     # norm1 = BatchNormalization(name="%s_bn1" % name)(conv0)
+##     norm1 = conv0
+##     last_conv = Conv2D(filters,conv_kernel,name="%s_conv1"%name, activation='relu', padding='same')
+##     ret   = last_conv(norm1)
+##     skip_ret  = ret
+##     
+##     if skip == None and conv_pool != None:
+##         print(last_conv.output_shape,conv_pool)        
+##         if last_conv.output_shape[1] >= conv_pool[0] and last_conv.output_shape[2] >= conv_pool[1]:
+##             ## print('aaaaaaa')
+##             ret = MaxPooling2D(pool_size=conv_pool,name="%s_pool"%name)(ret)
+##     
+##     return ret,skip_ret
 
 # -------------------------------------------------------------------------------------------------
-def make_gen_unit(name,conv,filters,skip=None,conv_kernel=(1,1),conv_pool=(2,1),deconv_kernel=(1,1),deconv_strides=(2, 1)):
+def make_gen_unit(name,conv,filters,skip=None,conv_kernel=(1,1),conv_pool=(2,1),deconv_kernel=(1,1),deconv_strides=(2, 1),dropout=None):
 
     if skip != None:
         up = concatenate( [Conv2DTranspose(filters, deconv_kernel, name="%s_deconv"%name, strides=deconv_strides, padding='same')(conv), skip], axis=3)
     else:
         up = conv
 
-    norm0 = BatchNormalization(name="%s_bn0" % name,momentum=0.9)(up)
-    conv0 = Conv2D(filters,conv_kernel,name="%s_conv0"%name, activation='relu', padding='same')(norm0)
-    # norm1 = BatchNormalization(name="%s_bn1" % name)(conv0)
-    norm1 = conv0
-    last_conv = Conv2D(filters,conv_kernel,name="%s_conv1"%name, activation='relu', padding='same')
-    ret   = last_conv(norm1)
+    conv0 = Conv2D(filters,conv_kernel,name="%s_conv0"%name, activation=None, padding='same')(up)
+    norm0 = BatchNormalization(name="%s_bn0" % name,momentum=0.9)(conv0)
+    last_conv = Activation('relu')
+    ret = last_conv(norm0)
     skip_ret  = ret
     
     if skip == None and conv_pool != None:
         print(last_conv.output_shape,conv_pool)        
         if last_conv.output_shape[1] >= conv_pool[0] and last_conv.output_shape[2] >= conv_pool[1]:
-            ## print('aaaaaaa')
             ret = MaxPooling2D(pool_size=conv_pool,name="%s_pool"%name)(ret)
+
+    if dropout != None:
+        ret = Dropout(dropout)(ret)
     
     return ret,skip_ret
-        
+
 
 # -------------------------------------------------------------------------------------------------
-def get_generator(input_shape,output_shape,filt_size=[32,64,128,256],sampling_step=(2,1)):
+def get_generator(input_shape,output_shape,filt_size=[32,64,128,256],sampling_step=(2,1),dropout=None):
 
     inputs = Input(input_shape)
     ## if len(input_shape) < 2:
@@ -42,17 +66,19 @@ def get_generator(input_shape,output_shape,filt_size=[32,64,128,256],sampling_st
     ##     first = inputs
 
     targets = Cropping2D( cropping=((0, input_shape[0]-output_shape[0]), (0, 0)), name="G_targets" )(inputs)
+
+    conditionals = Cropping2D( cropping=( (output_shape[0],(input_shape[0]-output_shape[0])//2-1), (0,0)), name="G_conditionals" )(inputs)
     
     min_shape = []
     need_padding = False
     for dim,step in enumerate(sampling_step):
         reduction = pow(step,len(sampling_step)+1)
-        smallest = input_shape[dim] // reduction
+        smallest = max(1,input_shape[dim] // reduction)
         if smallest % 2 != 0 and step != 1:
             smallest += 1
         min_size = smallest * reduction * step
         min_shape.append(min_size)
-        print(smallest,min_size,input_shape[dim])
+        print('aaaaaaa',smallest,min_size,input_shape[dim])
         if min_size > input_shape[dim]:
             need_padding = True
 
@@ -81,7 +107,11 @@ def get_generator(input_shape,output_shape,filt_size=[32,64,128,256],sampling_st
     filt_size = reversed(filt_size)
     for nfilt in filt_size:
         skip = skip_units.pop(-1)
-        last,_ = make_gen_unit("G_dunit_%d" % nfilt, last, nfilt, skip,deconv_strides=sampling_step)
+        do = None
+        if dropout != None:
+            do = dropout.pop(0) if type(dropout) != float else dropout
+        last,_ = make_gen_unit("G_dunit_%d" % nfilt, last, nfilt, skip,deconv_strides=sampling_step,
+                               dropout=do)
 
     n_outputs = 1
     flat = Flatten(name="G_flat")(last)
@@ -89,7 +119,9 @@ def get_generator(input_shape,output_shape,filt_size=[32,64,128,256],sampling_st
         n_outputs *= dim
     dense = Dense(n_outputs,name="G_dense",activation="relu")(flat)
     reshaped = Reshape(output_shape,name="G_reshape")(dense)
-    output = Add(name="G_output")([reshaped,reshaped_targets])
+    predict = Add(name="G_predict")([reshaped,reshaped_targets])
+    output = concatenate([predict,conditionals],name="G_output",axis=1)
+    
     
     model = Model(inputs=[inputs], outputs=[output])
 
