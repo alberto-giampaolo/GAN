@@ -1,180 +1,393 @@
-from __future__ import print_function
+import numpy as np
 
+from keras.layers import Input, Dense, Add, Multiply
+from keras.layers import Reshape, UpSampling1D, Flatten, concatenate, Cropping1D
+from keras.layers import Activation, LeakyReLU, PReLU
+from keras.layers import BatchNormalization, Dropout
 from keras.models import Model, Sequential
-from keras.layers import Input, concatenate, Conv2D, MaxPooling2D, Conv2DTranspose, Reshape, Flatten, Dense, Add, Cropping2D, BatchNormalization, ZeroPadding2D
-
 from keras.optimizers import Adam, RMSprop
 
-from keras.layers import LeakyReLU, Dropout, Activation
+from copy import copy
 
-## # -------------------------------------------------------------------------------------------------
-## def make_gen_unit(name,conv,filters,skip=None,conv_kernel=(1,1),conv_pool=(2,1),deconv_kernel=(1,1),deconv_strides=(2, 1)):
-## 
-##     if skip != None:
-##         up = concatenate( [Conv2DTranspose(filters, deconv_kernel, name="%s_deconv"%name, strides=deconv_strides, padding='same')(conv), skip], axis=3)
-##     else:
-##         up = conv
-## 
-##     norm0 = BatchNormalization(name="%s_bn0" % name,momentum=0.9)(up)
-##     conv0 = Conv2D(filters,conv_kernel,name="%s_conv0"%name, activation='relu', padding='same')(norm0)
-##     # norm1 = BatchNormalization(name="%s_bn1" % name)(conv0)
-##     norm1 = conv0
-##     last_conv = Conv2D(filters,conv_kernel,name="%s_conv1"%name, activation='relu', padding='same')
-##     ret   = last_conv(norm1)
-##     skip_ret  = ret
-##     
-##     if skip == None and conv_pool != None:
-##         print(last_conv.output_shape,conv_pool)        
-##         if last_conv.output_shape[1] >= conv_pool[0] and last_conv.output_shape[2] >= conv_pool[1]:
-##             ## print('aaaaaaa')
-##             ret = MaxPooling2D(pool_size=conv_pool,name="%s_pool"%name)(ret)
-##     
-##     return ret,skip_ret
+import plotting 
 
 # -------------------------------------------------------------------------------------------------
-def make_gen_unit(name,conv,filters,skip=None,conv_kernel=(1,1),conv_pool=(2,1),deconv_kernel=(1,1),deconv_strides=(2, 1),dropout=None):
+class Builder(object):
 
-    if skip != None:
-        up = concatenate( [Conv2DTranspose(filters, deconv_kernel, name="%s_deconv"%name, strides=deconv_strides, padding='same')(conv), skip], axis=3)
-    else:
-        up = conv
+    def __init__(self):
 
-    conv0 = Conv2D(filters,conv_kernel,name="%s_conv0"%name, activation=None, padding='same')(up)
-    norm0 = BatchNormalization(name="%s_bn0" % name,momentum=0.9)(conv0)
-    last_conv = Activation('relu')
-    ret = last_conv(norm0)
-    skip_ret  = ret
+        self._model = None
+
+    def __call__(self,*args,**kwargs):
+        if self._model == None:
+            self._model = self.build(*args,**kwargs)
+        return self._model
+
     
-    if skip == None and conv_pool != None:
-        print(last_conv.output_shape,conv_pool)        
-        if last_conv.output_shape[1] >= conv_pool[0] and last_conv.output_shape[2] >= conv_pool[1]:
-            ret = MaxPooling2D(pool_size=conv_pool,name="%s_pool"%name)(ret)
-
-    if dropout != None:
-        ret = Dropout(dropout)(ret)
-    
-    return ret,skip_ret
-
-
 # -------------------------------------------------------------------------------------------------
-def get_generator(input_shape,output_shape,filt_size=[32,64,128,256],sampling_step=(2,1),dropout=None):
+class MyGAN(object):
 
-    inputs = Input(input_shape)
-    ## if len(input_shape) < 2:
-    ##     first = Reshape((input_shape[0],1,1),name="reshape_input")(inputs)
-    ## else:
-    ##     first = inputs
+    # -------------------------------------------------------------------------------------------------
+    def __init__(self,x_shape,z_shape,gBuilder,dBuilder,dmBuilder,amBuilder,c_shape=None):
+        self.x_shape = x_shape
+        self.z_shape = z_shape
+        self.c_shape = c_shape
 
-    targets = Cropping2D( cropping=((0, input_shape[0]-output_shape[0]), (0, 0)), name="G_targets" )(inputs)
+        self.gBuilder = gBuilder
+        self.dBuilder = dBuilder
 
-    conditionals = Cropping2D( cropping=( (output_shape[0],(input_shape[0]-output_shape[0])//2-1), (0,0)), name="G_conditionals" )(inputs)
-    
-    min_shape = []
-    need_padding = False
-    for dim,step in enumerate(sampling_step):
-        reduction = pow(step,len(sampling_step)+1)
-        smallest = max(1,input_shape[dim] // reduction)
-        if smallest % 2 != 0 and step != 1:
-            smallest += 1
-        min_size = smallest * reduction * step
-        min_shape.append(min_size)
-        print('aaaaaaa',smallest,min_size,input_shape[dim])
-        if min_size > input_shape[dim]:
-            need_padding = True
-
-    print(need_padding)
-    if need_padding:
-        paddings = []
-        for have,need in zip(input_shape,min_shape):
-            paddings.append( (need - have,0) )
-        first = ZeroPadding2D( tuple(paddings), name="G_padding" )(inputs)
-    else:
-        first = inputs
-    
-    reshaped_targets = Reshape(output_shape,name="G_reshape_targets")(targets)
-    
-    skip_units = [first]
-    conv_units = [first]
-    
-    for nfilt in filt_size:
-        conv,skip = make_gen_unit("G_cunit_%d"%nfilt,conv_units[-1],nfilt,conv_pool=sampling_step)
-        conv_units.append(conv)
-        skip_units.append(skip)
+        self.amBuilder = amBuilder
+        self.dmBuilder = dmBuilder
         
-    last_size = filt_size[-1]*2
-    last,_ = make_gen_unit("G_cunit_%d" % last_size,conv_units[-1],last_size,conv_pool=None)
+        super(MyGAN,self).__init__()
 
-    filt_size = reversed(filt_size)
-    for nfilt in filt_size:
-        skip = skip_units.pop(-1)
-        do = None
+    # -------------------------------------------------------------------------------------------------
+    def get_generator(self):
+        return self.gBuilder(self.x_shape,self.z_shape,self.c_shape)
+    
+    # -------------------------------------------------------------------------------------------------
+    def get_discriminator(self):
+        return self.dBuilder(self.x_shape,self.c_shape)
+    
+    # -------------------------------------------------------------------------------------------------
+    def compile(self):
+        self.dm = self.dmBuilder(self.get_discriminator())
+        self.am = self.amBuilder(self.get_generator(),self.get_discriminator())
+
+        return self.am,self.dm
+        
+    # -------------------------------------------------------------------------------------------------
+    def fit(self,
+            x_train,z_train,c_x_train=None,c_z_train=None,
+            x_test=None,z_test=None,c_x_test=None,c_z_test=None,
+            n_disc_steps=1,n_gen_steps=1,
+            batch_size=256,n_epochs=50,plot_every=5,print_every=1,solution=None,
+    ):
+        
+        if type( x_test ) == type(None):
+            x_test = x_train
+        if type( z_test ) == type(None):
+            z_test = z_train
+        if type( c_x_test ) == type(None):
+            c_x_test = c_x_test
+        if type( c_z_test ) == type(None):
+            c_z_test = c_z_train
+
+        if type( c_z_train ) == type(None):
+            c_z_train = c_x_train
+        if type( c_z_test ) == type(None):
+            c_z_test = c_x_test
+            
+        has_c = type(c_x_train) != type(None)
+        
+        self.compile()
+        n_batches = x_train.shape[0] // batch_size
+        generator = self.get_generator()
+        discriminator = self.get_discriminator()
+        am = self.am
+        dm = self.dm
+        print_every = n_batches // print_every
+        
+        def train_batch(ib):
+            x_batch = x_train[ib*batch_size:(ib+1)*batch_size]
+            z_batch = z_train[ib*batch_size:(ib+1)*batch_size]
+            if has_c:
+                c_z_batch = c_z_train[ib*batch_size:(ib+1)*batch_size]
+                c_x_batch = c_x_train[ib*batch_size:(ib+1)*batch_size]
+                z_batch   = [ c_z_batch, z_batch ]
+                g_batch = generator.predict(z_batch)[1]
+            else:
+                g_batch = generator.predict(z_batch)
+            
+            x_train_b = np.vstack([x_batch,g_batch])
+            if has_c:
+                c_train_b = np.vstack([c_x_batch, c_z_batch ])
+                x_train_b = [ c_train_b,  x_train_b ]
+                
+            y_train_b = np.ones( (2*batch_size,1) )
+            y_train_b[:batch_size,:] = 0
+            
+            generator.trainable=False
+            for di in range(n_disc_steps):
+                d_loss = dm.train_on_batch(x_train_b,y_train_b)
+            #d_loss = [0,0]
+            generator.trainable=True
+            for di in range(n_gen_steps):
+                a_loss = am.train_on_batch(z_batch,np.zeros((batch_size,1)))
+            # a_loss = [0,0]
+            
+            if ib % print_every == 0:
+                msg = "%d: D [%f %f] A: [%f %f]" % (ib, d_loss[0], d_loss[1], a_loss[0], a_loss[1])
+                print(msg)
+
+        predictions = []
+        for iepoch in range(n_epochs):
+            if iepoch % plot_every == 0 or iepoch == n_epochs - 1:
+                if has_c:
+                    x_predict = generator.predict([c_z_test,z_test])[1]
+                else:
+                    x_predict = generator.predict(z_test)
+                predictions.append(x_predict)
+                if has_c:
+                    x_discrim = discriminator.predict([c_x_test,x_test])
+                    z_discrim = discriminator.predict([c_z_test,x_predict])
+                    plotting.plot_summary_cond( x_test.ravel(), c_x_test.ravel(), x_predict.ravel(), c_z_test.ravel(), z_test.ravel() , x_discrim, z_discrim) #, solution )
+                else:
+                    x_discrim = discriminator.predict(x_test)
+                    z_discrim = discriminator.predict(x_predict)
+                    if x_test.shape[-1] == 1:
+                        plotting.plot_summary( x_test.ravel(), x_predict.ravel(), z_test.ravel(), x_discrim, z_discrim, solution )
+                    else:
+                        plotting.plot_summary_2d( x_test, x_predict, x_discrim, z_discrim )
+            for ib in range(n_batches):
+                train_batch(ib)
+
+
+# -------------------------------------------------------------------------------------------------
+class FFDBuilder(Builder):
+
+    # -------------------------------------------------------------------------------------------------
+    def __init__(self,kernel_sizes,name="D"):
+        self.kernel_sizes = kernel_sizes
+        self.name = name
+        super(FFDBuilder,self).__init__()
+
+    # -------------------------------------------------------------------------------------------------
+    def build(self,x_shape,c_shape=None):
+        input_shape = x_shape
+        
+        inputs = Input(input_shape,name="%s_input" % self.name)
+        if c_shape != None:
+            c_inputs = Input(c_shape,name="%s_c_input" % self.name)
+            cur = concatenate( [c_inputs,inputs], name = "%s_all_inputs" % self.name )
+            ### cur = Reshape((2,1))(cur)
+            ### cur = Cropping1D( cropping=(1,0) )(cur)
+            inputs = [c_inputs,inputs]
+        else:
+            cur = inputs
+            inputs = [inputs]
+        ilayer = 1
+        for ksize in self.kernel_sizes:
+            cur = self.get_unit("%s_down%d" % (self.name,ilayer),cur,ksize)
+            ilayer += 1
+            
+        flat = Flatten(name="%s_flat" % self.name)(cur)
+        output = Dense(1,activation="sigmoid",name="%s_output" % self.name)(flat)
+            
+        model = Model(inputs=inputs,outputs=[output])
+        return model
+
+    # -------------------------------------------------------------------------------------------------
+    def get_unit(self,name,prev,n_out,dropout=None):
+
+        dense = Dense(n_out,use_bias=True,name="%s_dense" % name)(prev)
+        
         if dropout != None:
-            do = dropout.pop(0) if type(dropout) != float else dropout
-        last,_ = make_gen_unit("G_dunit_%d" % nfilt, last, nfilt, skip,deconv_strides=sampling_step,
-                               dropout=do)
+            dense = Dropout(dropout,name="%s_dropout"%name)(dense)
+            
+        output_layer = Activation("relu",name="%s_activ"%name)
+        ## output_layer = Activation("tanh",name="%s_activ"%name)
+        ## output_layer = LeakyReLU(name="%s_activ"%name) 
+        ## output_layer = PReLU(name="%s_activ"%name)
+        output = output_layer(dense)
+        
+        return output
 
-    n_outputs = 1
-    flat = Flatten(name="G_flat")(last)
-    for dim in output_shape:
-        n_outputs *= dim
-    dense = Dense(n_outputs,name="G_dense",activation="relu")(flat)
-    reshaped = Reshape(output_shape,name="G_reshape")(dense)
-    predict = Add(name="G_predict")([reshaped,reshaped_targets])
-    output = concatenate([predict,conditionals],name="G_output",axis=1)
-    
-    
-    model = Model(inputs=[inputs], outputs=[output])
-
-    return model
 
 # -------------------------------------------------------------------------------------------------
-def make_disc_unit(name,inp,filters,dropout=0.4,conv_kernel=(1,1),conv_pool=(2,1)):
+class FFGBuilder(Builder):
 
-    conv = Conv2D(filters,conv_kernel,name="%s_conv"%name, activation=None, padding='same')(inp)
-    actv = LeakyReLU(alpha=0.2,name="%s_actv"%name)(conv)
-    dout = Dropout(dropout,name="%s_dout"%name)(actv)
+    # -------------------------------------------------------------------------------------------------
+    def __init__(self,kernel_sizes,do_down=False,do_skip=False,do_poly=False,do_bn=False,
+                 do_nl_activ=False,name="G"):
+        self.kernel_sizes = kernel_sizes
+        self.do_down = do_down
+        self.do_skip = do_skip
+        self.do_poly = do_poly
+        self.do_bn = do_bn
+        self.do_nl_activ = do_nl_activ
+        self.name = name
+        super(FFGBuilder,self).__init__()
 
-    return dout
+    # -------------------------------------------------------------------------------------------------
+    def build(self,x_shape,z_shape,c_shape=None):
+        
+        do_down = copy(self.do_down)
+        do_skip = copy(self.do_skip)
+        do_poly = copy(self.do_poly)
+        do_bn = copy(self.do_bn)
+        do_nl_activ = copy(self.do_nl_activ)
+        input_shape = z_shape
+        output_shape = x_shape
+        
+        x_inputs = Input(input_shape,name="%s_input" % self.name)
+        if c_shape != None:
+            c_inputs = Input(c_shape,name="%s_c_input" % self.name)
+            cur = concatenate( [c_inputs,x_inputs], name = "%s_all_inputs" % self.name)
+            ## cur = Reshape((2,1))(cur)
+            ## cur = Cropping1D( cropping=(1,0) )(cur)
+            inputs = [c_inputs,x_inputs]
+            outputs = [c_inputs]
+        else:
+            cur = x_inputs
+            inputs = [x_inputs]
+            outputs = []
+        
+        ## powers = [inputs]
+        ## for ip in range(1):
+        ##     powers.append( Multiply(name="%s_powers%d" % (self.name,ip+2))([inputs,powers[-1]]) )
+        ## cur = concatenate(powers,name="%s_powers" % self.name)
+        ## cur = inputs
+
+        ilayer = 1
+        if do_down:
+            for ksize in self.kernel_sizes:
+                cur = self.get_unit("%s_down%d" % (ilayer,self.name),cur,ksize,skip=do_skip,bn=do_bn)
+                ilayer += 1
+                
+        for ksize in reversed(self.kernel_sizes):
+            if do_bn != None:
+                bn = do_bn
+                if type(do_bn) == list:
+                    bn = do_bn.pop(0)
+            if do_nl_activ != None:
+                nl_activ = do_nl_activ
+            if type(do_nl_activ) == list:
+                nl_activ = do_nl_activ.pop(0)            
+            cur = self.get_unit("%s_up%d" % (self.name,ilayer),cur,ksize,skip=do_skip,bn=bn,nl_activ=nl_activ)
+            ilayer += 1
+
+        output_size = 1
+        print(output_shape)
+        for dim in output_shape: output_size *= dim
+
+        # output = Flatten(name="%s_flatten" % self.name)(cur)
+        output = cur
+        
+        # output = Dense(output_size,activation="relu",use_bias=True,name="%s_output" % self.name)(output)
+        output = Dense(output_size,use_bias=True,name="%s_output" % self.name)(output)
+
+        if not do_skip and not do_poly:
+            ## output = PReLU(name="%s_actviation" % self.name)(output)
+            output = Add(name="%s_add" % self.name)([x_inputs,output])
+        
+        if do_poly:
+            terms = []
+            powers = []
+            for iord in range(2):
+                coeff = Dense(output_size,use_bias=True,name="%s_output_coef%d" % (self.name,iord))(output)
+                if len(powers) > 0:
+                    coeff = Multiply(name="%s_output_term%d" % (self.name,iord) )([coeff,powers[-1]])
+                    powers.append( Multiply(name="%s_powers%d" % (self.name,iord+1))([x_inputs,powers[-1]]) )
+                else:
+                    powers.append(x_inputs)
+            terms.append(coeff)
+            output = Add(name="%s_add" % self.name)([x_inputs]+terms)
+
+        # output = cur
+        # output = Reshape(output_shape,name="%s_reshape" % self.name)(output)
+        outputs.append(output)
+        
+        model = Model(inputs=inputs,outputs=outputs)
+        return model
+    
+    # -------------------------------------------------------------------------------------------------
+    def get_unit(self,name,prev,n_out,dropout=None,activate=False,skip=False,bn=False,nl_activ=False):
+
+        inp = prev        
+        if bn:
+            prev = BatchNormalization(name="%s_bn" % name,momentum=.5)(prev)
+    
+        if dropout != None:
+            prev = Dropout(dropout,name="%s_dropout"%name)(prev)
+
+        dense_layer = Dense(n_out,use_bias=True,name="%s_dense" % name)
+        dense = dense_layer(prev)
+
+        if nl_activ != False:
+            typ = "sigmoid" if type(nl_activ) != str else nl_activ
+            output_layer = Activation(typ,name="%s_activ"%name)
+        else:
+            ## output_layer = Activation("relu",name="%s_activ"%name)
+            ## output_layer = LeakyReLU(name="%s_activ"%name) 
+            output_layer = PReLU(name="%s_activ"%name)
+        output = output_layer(dense)
+
+        if skip:
+            if dense_layer.output_shape[2] > dense_layer.input_shape[2]:
+                up_layer = UpSampling1D( dense_layer.output_shape[2]/dense_layer.input_shape[2], name="%s_up" %name )
+                up = up_layer(inp)
+                up = Reshape(dense_layer.output_shape[1:],name="%s_up_reshape"%name)(up)
+                print(up_layer.input_shape,up_layer.output_shape)
+            else:
+                up = inp
+                if dense_layer.output_shape[2] < dense_layer.input_shape[2]:
+                    up_dense_layer = UpSampling1D( dense_layer.input_shape[2]/dense_layer.output_shape[2], name="%s_up" %name )
+                    output = up_dense_layer(output)
+                    output = Reshape(dense_layer.input_shape[1:],name="%s_up_reshape"%name)(output)
+                    print(up_dense_layer.input_shape,up_dense_layer.output_shape)
+                
+            output = Add(name="%s_skip"%name)([output,up])
 
     
+        return output
+
 
 # -------------------------------------------------------------------------------------------------
-def get_discriminator(input_shape,filt_size=[32,64,128,256]):
+class DMBuilder(Builder):
 
-    inputs = Input(input_shape)
+    def __init__(self,optimizer=RMSprop,opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+        self.optimizer = optimizer
+        self.opt_kwargs = opt_kwargs
+        super(DMBuilder,self).__init__()
 
-    last = inputs
-    for nfilts in filt_size:
-        last = make_disc_unit("D_conv%d" % nfilts,last,nfilts)
-    
-    flat = Flatten(name="D_flat")(last)
-    dense = Dense(1,name="D_dense",activation="sigmoid")(flat)
-    output = dense
-    
-    model = Model(inputs=[inputs], outputs=[output])
-    
-    return model
-
-# -------------------------------------------------------------------------------------------------
-def discriminator_model(discriminator):
-    ## optimizer = RMSprop(lr=0.0002, decay=6e-8)
-    optimizer=Adam(lr=1e-4)
-    dm = Sequential()
-    discriminator.trainable = True
-    dm.add(discriminator)
-    dm.compile(loss='binary_crossentropy', optimizer=optimizer,metrics=['accuracy'])
-
-    return dm
+    def build(self,discriminator):
+        optimizer = self.optimizer(**self.opt_kwargs)
+        ## dm = Sequential()
+        discriminator.trainable = True
+        ## dm.add(discriminator)
+        dm = Model(inputs=discriminator.inputs,outputs=discriminator.outputs)
+        dm.compile(loss='binary_crossentropy', optimizer=optimizer,metrics=['accuracy'])
+        
+        return dm
 
 # -------------------------------------------------------------------------------------------------
-def adversarial_model(generator,discriminator):
-    ## optimizer = RMSprop(lr=0.0002, decay=6e-8)
-    optimizer=Adam(lr=1e-4)
-    am = Sequential()
-    discriminator.trainable = False
-    am.add(generator)
-    am.add(discriminator)
-    am.compile(loss='binary_crossentropy', optimizer=optimizer,metrics=['accuracy'])
+class AMBuilder(Builder):
 
-    return am
+    def __init__(self,optimizer=RMSprop,opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+        self.optimizer = optimizer
+        self.opt_kwargs = opt_kwargs
+        super(AMBuilder,self).__init__()
 
+    def build(self,generator,discriminator):
+        optimizer = self.optimizer(**self.opt_kwargs)
+        
+        ## am = Sequential()
+        discriminator.trainable = False
+        ## am.add(generator)
+        ## am.add(discriminator)
+        wrapped_generator = generator(generator.inputs)
+        wrapped_discriminator = discriminator(generator.outputs)
+        am = Model(inputs=generator.inputs,outputs=wrapped_discriminator)
+        am.compile(loss='binary_crossentropy', optimizer=optimizer,metrics=['accuracy'])
+
+        return am
+
+# -------------------------------------------------------------------------------------------------
+class MyFFGAN(MyGAN):
+
+    def __init__(self,x_shape,z_shape,
+                 g_opts=dict(),
+                 d_opts=dict(),
+                 dm_opts=dict(),
+                 am_opts=dict(),
+                 c_shape=None):
+
+        gBuilder = FFGBuilder(**g_opts)
+        dBuilder = FFDBuilder(**d_opts)
+
+        dmBuilder = DMBuilder(**dm_opts)
+        amBuilder = AMBuilder(**am_opts)
+                
+        super(MyFFGAN,self).__init__(x_shape,z_shape,gBuilder,dBuilder,dmBuilder,amBuilder,c_shape)
+    
