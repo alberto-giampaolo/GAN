@@ -131,7 +131,7 @@ class MyGAN(object):
                 if has_c:
                     x_discrim = discriminator.predict([c_x_test,x_test])
                     z_discrim = discriminator.predict([c_z_test,x_predict])
-                    plotting.plot_summary_cond( x_test.ravel(), c_x_test.ravel(), x_predict.ravel(), c_z_test.ravel(), z_test.ravel() , x_discrim, z_discrim) #, solution )
+                    plotting.plot_summary_cond( x_test, c_x_test, x_predict, c_z_test, z_test , x_discrim, z_discrim) #, solution )
                 else:
                     x_discrim = discriminator.predict(x_test)
                     z_discrim = discriminator.predict(x_predict)
