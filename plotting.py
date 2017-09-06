@@ -1,18 +1,28 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
-
-# ------------------------------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 def plot_hists(target,generated,source=None,bins=60,range=[-5,5],legend=True,**kwargs):
     plt.hist(generated,bins=bins,range=range,normed=True,label='generated',**kwargs)
-    plt.hist(target,bins=bins,range=range,alpha=0.5,normed=True,label='target',**kwargs);
     if type(source) != type(None):
+        target_hist,target_edges = np.histogram(target,bins=bins,range=range,normed=False)
+        norm = (target_hist*(target_edges[1:]-target_edges[:-1])).sum()
+        plt.bar(0.5*(target_edges[:-1]+target_edges[1:]),
+                target_hist/norm,
+                width=0.,
+                xerr=0.5*(target_edges[1:]-target_edges[:-1]),
+                yerr=np.sqrt(target_hist)/norm,
+                ## ,alpha=0.5,
+                label='target',**kwargs)
         plt.hist(source,bins=bins,range=range,alpha=0.5,normed=True,label='source',**kwargs);
+    else:
+        plt.hist(target,bins=bins,range=range,alpha=0.5,normed=True,label='target',color='green',**kwargs);
     if legend:
         plt.legend(loc='best')
     
 
 
-# ------------------------------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 def plot_summary(target,generated,source,target_p,generated_p,solution=None,saveas=None):
 
     plt.subplot(2,1,1)
@@ -32,14 +42,16 @@ def plot_summary(target,generated,source,target_p,generated_p,solution=None,save
         plt.savefig(saveas)
     plt.show()
 
-# ------------------------------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 def plot_summary_2d(target,generated,target_p,generated_p,solution=None,saveas=None):
 
     plt.subplot(2,2,1)
-    plt.hexbin( target[:,0,0], target[:,0,1] )
+    plt.hexbin( target[:,0,0], target[:,0,1], normed=True )
+    plt.colorbar()
     
     plt.subplot(2,2,2)
-    plt.hexbin( generated[:,0,0], generated[:,0,1] )
+    plt.hexbin( generated[:,0,0], generated[:,0,1], normed=True )
+    plt.colorbar()
     
     plt.subplot(2,1,2)
     plot_hists(target_p,generated_p,range=[0,1])
@@ -50,7 +62,7 @@ def plot_summary_2d(target,generated,target_p,generated_p,solution=None,saveas=N
 
         
     
-# ------------------------------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 def plot_summary_cond(target,c_target,generated,c_source,source,target_p,generated_p,
                       do_slices=False,c_bounds = [-10,-1.,-0.5,0.,0.5,1.,10.]):
     ## plt.subplot(2,2,1)
@@ -84,11 +96,23 @@ def plot_summary_cond(target,c_target,generated,c_source,source,target_p,generat
             
                 plt.subplot(n_rows+1,1,n_rows+1)
         else:
+            allx = np.hstack([c_target.ravel(),c_source.ravel()])
+            ally = np.hstack([target.ravel(),source.ravel()])
+            
+            xmin=np.min(allx)
+            xmax=np.max(allx)
+            ymin=np.min(ally)
+            ymax=np.max(ally)
+            
             plt.subplot(2,2,1)
-            plt.hexbin( c_target.ravel(), target.ravel() )
+            plt.hist2d( c_target.ravel(), target.ravel(), bins=60, range=[[xmin,xmax],[ymin,ymax]],
+                        normed=True )
+            plt.colorbar()
             
             plt.subplot(2,2,2)
-            plt.hexbin( c_source.ravel(), generated.ravel() )
+            plt.hist2d( c_source.ravel(), generated.ravel(), bins=60, range=[[xmin,xmax],[ymin,ymax]],
+                        normed=True )
+            plt.colorbar()
             
             plt.subplot(2,1,2)
     else:
