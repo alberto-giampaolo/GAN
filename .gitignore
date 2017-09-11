@@ -1,3 +1,13 @@
+# backup files
+*~
+*.bak
+
+# data files
+*.hd5
+*.hdf
+*.hdf5
+*.root
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

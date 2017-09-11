@@ -1,6 +1,48 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from keras.callbacks import Callback
+
+
+# --------------------------------------------------------------------------------------------------
+class SlicePlotter(Callback):
+
+    # --------------------------------------------------------------------------------------------------
+    def __init__(self,generator,discriminator,x_test,z_test,c_x_test=None,c_z_test=None,plot_every=5,
+                 c_quantiles=[0,5,20,40,60,80,95,100]
+    ):
+        self.generator = generator
+        self.discriminator = discriminator
+        self.x_test = x_test
+        self.z_test = z_test 
+        self.c_x_test = c_x_test
+        self.c_z_test = c_z_test
+
+        self.plot_every = plot_every
+        self.has_c = type(self.c_x_test) != None
+        if self.has_c:
+            self.c_quantiles = np.percentile(c_x_test,c_quantiles)
+        
+    def on_epoch_end(self, epoch, logs={}):
+
+        if epoch % self.plot_every != 0:
+            return
+        
+        if self.has_c:
+            x_predict = self.generator.predict([self.c_z_test,self.z_test])[1]
+            x_discrim = self.discriminator.predict([self.c_x_test,self.x_test])
+            z_discrim = self.discriminator.predict([self.c_z_test,x_predict])
+            plot_summary_cond( self.x_test, self.c_x_test, x_predict, self.c_z_test, self.z_test , x_discrim, z_discrim, c_bounds=self.c_quantiles)
+        else:
+            x_predict = self.generator.predict(self.z_test)
+            x_discrim = self.discriminator.predict(self.x_test)
+            z_discrim = self.discriminator.predict(self.x_predict)
+            if x_test.shape[-1] == 1:
+                plot_summary( self.x_test.ravel(), self.x_predict.ravel(), self.z_test.ravel(), x_discrim, z_discrim) ## , solution )
+            else:
+                plot_summary_2d( self.x_test, x_predict, x_discrim, z_discrim )
+
+
 # --------------------------------------------------------------------------------------------------
 def plot_hists(target,generated,source=None,bins=60,range=[-5,5],legend=True,**kwargs):
     plt.hist(generated,bins=bins,range=range,normed=True,label='generated',**kwargs)
