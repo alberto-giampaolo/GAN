@@ -1,8 +1,8 @@
-from sklearn.preprocessing import RobustScaler, MinMaxScaler, QuantileTransformer
+from sklearn.preprocessing import RobustScaler, QuantileTransformer
 
 
 default_tranformers = dict(minmax=RobustScaler(quantile_range=(10.,90.)),
-                           gaus=QuantileTransformer(output_distribution="normal"))
+                           gaus=QuantileTransformer(output_distribution="normal",n_quantiles=1000))
 
 # ------------------------------------------------------------------------------------------------
 def transform(data_x,data_c,mc_x,mc_c,transform='minmax',reshape=True,return_scalers=True):

@@ -5,6 +5,7 @@ from keras.layers import Reshape, UpSampling1D, Flatten, concatenate, Cropping1D
 from keras.layers import Activation, LeakyReLU, PReLU
 from keras.layers import BatchNormalization, Dropout
 from keras.models import Model, Sequential
+import keras.optimizers
 from keras.optimizers import Adam, RMSprop
 
 from copy import copy
@@ -206,6 +207,8 @@ class DMBuilder(Builder):
 
     def __init__(self,optimizer=RMSprop,opt_kwargs=dict(lr=0.0002, decay=6e-8)):
         self.optimizer = optimizer
+        if type(self.optimizer) == str:
+            self.optimizer = getattr(keras.optimizers,self.optimizer)
         self.opt_kwargs = opt_kwargs
         super(DMBuilder,self).__init__()
 
@@ -225,6 +228,8 @@ class AMBuilder(Builder):
 
     def __init__(self,optimizer=RMSprop,opt_kwargs=dict(lr=0.0002, decay=6e-8)):
         self.optimizer = optimizer
+        if type(self.optimizer) == str:
+            self.optimizer = getattr(keras.optimizers,self.optimizer)
         self.opt_kwargs = opt_kwargs
         super(AMBuilder,self).__init__()
 
