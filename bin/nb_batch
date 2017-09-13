@@ -1,1 +1,22 @@
-/users/musella/bin/nb_batch
+#!/bin/bash
+
+inp=$1 && shift
+
+if [[ -z $1 ]] && [[ $1 != --* ]]; then
+    out=$1
+    shift
+else
+    inp="--inplace $inp"
+fi
+
+opts=$@
+
+source $HOME/env.sh
+
+set -x
+
+export MY_APP_ARGS="$opts"
+
+jupyter nbconvert --debug --execute --to notebook --ExecutePreprocessor.timeout=-1 $inp $out
+
+## --allow-errors 
