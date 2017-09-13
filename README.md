@@ -4,7 +4,7 @@ Playground to use GAN for data/MC morphing
 
 ## Dependencies
 
-* Standard python ML echosystem (numpy, pandas, matplotlib, sckit-learn,
+* Standard python ML ecosystem (numpy, pandas, matplotlib, sckit-learn,
   keras, theano, thensorflow)
 * Keras adversarial
   https://github.com/bstriner/keras-adversarial/tree/master/keras_adversarial

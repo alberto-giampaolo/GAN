@@ -10,7 +10,7 @@ from keras.optimizers import Adam, RMSprop
 
 from copy import copy
 
-from base import Builder, MyGAN
+from .base import Builder, MyGAN
 
 # --------------------------------------------------------------------------------------------------
 class FFDBuilder(Builder):

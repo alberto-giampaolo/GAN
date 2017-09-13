@@ -9,9 +9,9 @@ from keras.optimizers import Adam, RMSprop
 
 from copy import copy
 
-import plotting 
+from . import plotting 
 
-from base import Builder, MyGAN
+from .base import Builder, MyGAN
 
-from ffwd import MyFFGAN
+from .ffwd import MyFFGAN
 

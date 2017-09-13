@@ -7,7 +7,7 @@ except NameError:
         from importlib import reload  # Python 3.4+
     except ImportError:
         from imp import reload  # Python 3.0 - 3.3
-import plotting 
+from . import plotting 
 reload(plotting)
 
 from keras.models import Model
