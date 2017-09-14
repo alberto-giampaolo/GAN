@@ -12,9 +12,11 @@ reload(plotting)
 
 from keras.models import Model
 
-from keras_adversarial import AdversarialOptimizerSimultaneous
+from keras_adversarial import AdversarialOptimizerSimultaneous, AdversarialOptimizerScheduled
 from keras_adversarial import AdversarialModel
 from keras_adversarial.adversarial_utils import gan_targets
+
+from .wgan import AdversarialOptimizerSimultaneousWithLoops
 
 # --------------------------------------------------------------------------------------------------
 class Builder(object):
@@ -33,7 +35,8 @@ class Builder(object):
 class MyGAN(object):
 
     # --------------------------------------------------------------------------------------------------
-    def __init__(self,x_shape,z_shape,gBuilder,dBuilder,dmBuilder,amBuilder,c_shape=None):
+    def __init__(self,x_shape,z_shape,gBuilder,dBuilder,dmBuilder,amBuilder,gan_targets=gan_targets,
+                 c_shape=None):
         self.x_shape = x_shape
         self.z_shape = z_shape
         self.c_shape = c_shape
@@ -43,6 +46,11 @@ class MyGAN(object):
 
         self.amBuilder = amBuilder
         self.dmBuilder = dmBuilder
+
+        self.gan_targets = gan_targets
+        if type(self.gan_targets) == str:
+            import keras_adversarial.adversarial_utils
+            self.gan_targets = getattr(keras_adversarial.adversarial_utils,self.gan_targets)
         
         super(MyGAN,self).__init__()
 
@@ -62,7 +70,7 @@ class MyGAN(object):
         return self.am,self.dm
 
     # --------------------------------------------------------------------------------------------------
-    def adversarial_compile(self,loss='binary_crossentropy'):
+    def adversarial_compile(self,loss='binary_crossentropy',schedule=None):
         dm,dmop = self.dmBuilder(self.get_discriminator(),do_compile=False)
         am,amop = self.amBuilder(self.get_generator(),self.get_discriminator(),do_compile=False)
 
@@ -74,33 +82,38 @@ class MyGAN(object):
                                       player_params=[self.get_generator().trainable_weights,
                                                      self.get_discriminator().trainable_weights],
                                       player_names=["generator", "discriminator"])
-        
-        self.model.adversarial_compile(adversarial_optimizer=AdversarialOptimizerSimultaneous(),
+
+        ## optimizer = AdversarialOptimizerSimultaneousWithLoops(nloops=nloops)
+        if not schedule is None:
+            optimizer = AdversarialOptimizerScheduled(schedule)
+        else:
+            optimizer = AdversarialOptimizerSimultaneous()
+        self.model.adversarial_compile(adversarial_optimizer=optimizer,
                                        player_optimizers=[amop, dmop],
                                        loss=loss)
         
         
     # --------------------------------------------------------------------------------------------------
     def adversarial_fit(self,
-            x_train,z_train,c_x_train=None,c_z_train=None,
-            x_test=None,z_test=None,c_x_test=None,c_z_test=None,
-            batch_size=256,n_epochs=50,plot_every=5
+                        x_train,z_train,c_x_train=None,c_z_train=None,
+                        x_test=None,z_test=None,c_x_test=None,c_z_test=None,
+                        batch_size=256,n_epochs=50,plot_every=5,**kwargs
     ):
-        if type( x_test ) == type(None):
+        if  x_test  is None:
             x_test = x_train
-        if type( z_test ) == type(None):
+        if  z_test  is None:
             z_test = z_train
-        if type( c_x_test ) == type(None):
+        if  c_x_test  is None:
             c_x_test = c_x_test
-        if type( c_z_test ) == type(None):
+        if  c_z_test  is None:
             c_z_test = c_z_train
 
-        if type( c_z_train ) == type(None):
+        if  c_z_train  is None:
             c_z_train = c_x_train
-        if type( c_z_test ) == type(None):
+        if  c_z_test  is None:
             c_z_test = c_x_test
             
-        has_c = type(c_x_train) != type(None)
+        has_c = not c_x_train is None
 
         if has_c:
             train_x = [ c_z_train, z_train, c_x_train, x_train  ]
@@ -109,17 +122,14 @@ class MyGAN(object):
             train_x = [ z_train, x_train  ]
             test_x = [ z_test, x_test  ]
 
-        ## train_y = [ np.zeros( (z_train.shape[0],1) ), np.ones( (x_train.shape[0],1) ) ]
-        ## test_y = [ np.zeros( (z_test.shape[0],1) ), np.ones( (x_test.shape[0],1) ) ]
-        ## validation_data=(test_x,test_y),
-        train_y = gan_targets( train_x[0].shape[0] )
-        test_y = gan_targets( test_x[0].shape[0] )
+        train_y = self.gan_targets( train_x[0].shape[0] )
+        test_y = self.gan_targets( test_x[0].shape[0] )
 
         plotter = plotting.SlicePlotter(self.get_generator(),
                                self.get_discriminator(),
                                x_test,z_test,c_x_test,c_z_test,plot_every=plot_every)
         self.model.fit( train_x, train_y,  nb_epoch=n_epochs, batch_size=batch_size,
-                        callbacks = [plotter]
+                        callbacks = [plotter], **kwargs
         )
 
     # --------------------------------------------------------------------------------------------------
@@ -130,21 +140,21 @@ class MyGAN(object):
             batch_size=256,n_epochs=50,plot_every=5,print_every=1,solution=None,
     ):
         
-        if type( x_test ) == type(None):
+        if  x_test  is None:
             x_test = x_train
-        if type( z_test ) == type(None):
+        if  z_test  is None:
             z_test = z_train
-        if type( c_x_test ) == type(None):
+        if  c_x_test  is None:
             c_x_test = c_x_test
-        if type( c_z_test ) == type(None):
+        if  c_z_test  is None:
             c_z_test = c_z_train
 
-        if type( c_z_train ) == type(None):
+        if  c_z_train  is None:
             c_z_train = c_x_train
-        if type( c_z_test ) == type(None):
+        if  c_z_test  is None:
             c_z_test = c_x_test
             
-        has_c = type(c_x_train) != type(None)
+        has_c = not c_x_train is None
         
         self.compile()
         n_batches = x_train.shape[0] // batch_size

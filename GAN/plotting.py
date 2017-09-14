@@ -45,8 +45,15 @@ class SlicePlotter(Callback):
 
 # --------------------------------------------------------------------------------------------------
 def plot_hists(target,generated,source=None,bins=60,range=[-5,5],legend=True,**kwargs):
+    if range is None:
+        mins  = [target.min(),generated.min()]
+        maxes = [target.max(),generated.max()]
+        if not source is None:
+            mins.append(source.min())
+            maxes.append(source.max())
+        range = [min(mins),max(maxes)]
     plt.hist(generated,bins=bins,range=range,normed=True,label='generated',**kwargs)
-    if type(source) != type(None):
+    if not source is None:
         target_hist,target_edges = np.histogram(target,bins=bins,range=range,normed=False)
         norm = (target_hist*(target_edges[1:]-target_edges[:-1])).sum()
         plt.bar(0.5*(target_edges[:-1]+target_edges[1:]),
@@ -176,7 +183,8 @@ def plot_summary_cond(target,c_target,generated,c_source,source,target_p,generat
             plt.show()
 
         plt.figure(figsize=(5*n_cols,2.5))
-    plot_hists(target_p,generated_p,range=[0,1])
+    ## plot_hists(target_p,generated_p,range=[0,1])
+    plot_hists(target_p,generated_p,range=None)
     ## if saveas != None:
     ##     plt.savefig(saveas)
     plt.show()

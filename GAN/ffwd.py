@@ -12,13 +12,17 @@ from copy import copy
 
 from .base import Builder, MyGAN
 
+from .wgan import WeightClip, wgan_loss
+
 # --------------------------------------------------------------------------------------------------
 class FFDBuilder(Builder):
 
     # --------------------------------------------------------------------------------------------------
-    def __init__(self,kernel_sizes,name="D"):
+    def __init__(self,kernel_sizes,name="D",activation="sigmoid",clip_weights=None):
         self.kernel_sizes = kernel_sizes
         self.name = name
+        self.activation = activation
+        self.clip_weights = clip_weights
         super(FFDBuilder,self).__init__()
 
     # --------------------------------------------------------------------------------------------------
@@ -41,7 +45,7 @@ class FFDBuilder(Builder):
             ilayer += 1
             
         flat = Flatten(name="%s_flat" % self.name)(cur)
-        output = Dense(1,activation="sigmoid",name="%s_output" % self.name)(flat)
+        output = Dense(1,activation=self.activation,name="%s_output" % self.name)(flat)
             
         model = Model(inputs=inputs,outputs=[output])
         return model
@@ -49,7 +53,10 @@ class FFDBuilder(Builder):
     # --------------------------------------------------------------------------------------------------
     def get_unit(self,name,prev,n_out,dropout=None):
 
-        dense = Dense(n_out,use_bias=True,name="%s_dense" % name)(prev)
+        kernel_constraint=None
+        if self.clip_weights:
+            kernel_constraint = WeightClip(self.clip_weights)
+        dense = Dense(n_out,use_bias=True,name="%s_dense" % name, kernel_constraint=kernel_constraint)(prev)
         
         if dropout != None:
             dense = Dropout(dropout,name="%s_dropout"%name)(dense)
@@ -205,11 +212,13 @@ class FFGBuilder(Builder):
 # --------------------------------------------------------------------------------------------------
 class DMBuilder(Builder):
 
-    def __init__(self,optimizer=RMSprop,opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
+                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
         self.optimizer = optimizer
         if type(self.optimizer) == str:
             self.optimizer = getattr(keras.optimizers,self.optimizer)
         self.opt_kwargs = opt_kwargs
+        self.loss = loss
         super(DMBuilder,self).__init__()
 
     def build(self,discriminator,do_compile=True):
@@ -218,7 +227,7 @@ class DMBuilder(Builder):
             discriminator.trainable = True
         dm = Model(inputs=discriminator.inputs,outputs=discriminator.outputs)
         if do_compile:
-            dm.compile(loss='binary_crossentropy', optimizer=optimizer,metrics=['accuracy'])
+            dm.compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
             return dm
         else:
             return dm, optimizer
@@ -226,13 +235,15 @@ class DMBuilder(Builder):
 # --------------------------------------------------------------------------------------------------
 class AMBuilder(Builder):
 
-    def __init__(self,optimizer=RMSprop,opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
+                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
         self.optimizer = optimizer
         if type(self.optimizer) == str:
             self.optimizer = getattr(keras.optimizers,self.optimizer)
         self.opt_kwargs = opt_kwargs
         super(AMBuilder,self).__init__()
-
+        self.loss = loss
+        
     def build(self,generator,discriminator,do_compile=True):
         optimizer = self.optimizer(**self.opt_kwargs)
 
@@ -242,7 +253,7 @@ class AMBuilder(Builder):
         wrapped_discriminator = discriminator(generator.outputs)
         am = Model(inputs=generator.inputs,outputs=wrapped_discriminator)
         if do_compile:
-            am.compile(loss='binary_crossentropy', optimizer=optimizer,metrics=['accuracy'])
+            am.compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
             return am
         else:
             return am,optimizer
@@ -255,7 +266,8 @@ class MyFFGAN(MyGAN):
                  d_opts=dict(),
                  dm_opts=dict(),
                  am_opts=dict(),
-                 c_shape=None):
+                 **kwargs
+    ):
 
         gBuilder = FFGBuilder(**g_opts)
         dBuilder = FFDBuilder(**d_opts)
@@ -263,5 +275,5 @@ class MyFFGAN(MyGAN):
         dmBuilder = DMBuilder(**dm_opts)
         amBuilder = AMBuilder(**am_opts)
                 
-        super(MyFFGAN,self).__init__(x_shape,z_shape,gBuilder,dBuilder,dmBuilder,amBuilder,c_shape)
+        super(MyFFGAN,self).__init__(x_shape,z_shape,gBuilder,dBuilder,dmBuilder,amBuilder,**kwargs)
     

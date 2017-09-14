@@ -8,7 +8,9 @@ Playground to use GAN for data/MC morphing
   keras, theano, thensorflow)
 * Keras adversarial
   https://github.com/bstriner/keras-adversarial/tree/master/keras_adversarial
-
+  *Note*: needs bug fix #40 (fix for buggy legacy.get_updates). 
+  Can be downloaded from 
+  https://github.com/musella/keras-adversarial/tree/master/keras_adversarial	
 
 ## Examples
 * Toys

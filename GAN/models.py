@@ -15,3 +15,11 @@ from .base import Builder, MyGAN
 
 from .ffwd import MyFFGAN
 
+from .wgan import WeightClip, wgan_loss
+
+import keras.losses
+import keras.constraints
+
+keras.losses.wgan_loss = wgan_loss
+keras.constraints.WeightClip = WeightClip
+

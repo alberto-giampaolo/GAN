@@ -56,12 +56,13 @@ def three_peaks(sample_size=10000,split=True):
 
 
 # ------------------------------------------------------------------------------------------------------------------------------------------
-def two_peaks_conditional(fc,sample_size=10000,split=True):
-    x,z,c = three_peaks_target(sample_size),white_source(sample_size),unif_source(samples_size)
-    
+def three_peaks_conditional(fc,sample_size=10000,split=True):
+    x,z,c = three_peaks_target(sample_size),white_source(sample_size),unif_source(sample_size)
+    print(x.shape,z.shape,c.shape)
     cx = np.hstack([c.reshape(-1,1),x.reshape(-1,1)])
-    x = normalize(np.apply_along_axis( fc, 1, cx ))
+    x = normalize(np.apply_along_axis( fc, 1, cx ).reshape(-1,1,1))
     c = normalize(c)
+    print(x.shape,z.shape,c.shape)
     if split:
         ret = train_test_split(c,x,z)
     else:
@@ -83,10 +84,10 @@ def shift_square(X):
 
     
 # ------------------------------------------------------------------------------------------------------------------------------------------
-def two_peaks_conditional_cube(samples_size=10000,split=True):
-    return two_peaks_conditional(shift_cube,samples_size=samples_size,shift=shift)
+def three_peaks_conditional_cube(sample_size=10000,split=True):
+    return three_peaks_conditional(shift_cube,sample_size=sample_size)
 
 # ------------------------------------------------------------------------------------------------------------------------------------------
-def two_peaks_conditional_square(samples_size=10000,split=True):
-    return two_peaks_conditional(shift_square,samples_size=samples_size,shift=shift)
+def three_peaks_conditional_square(sample_size=10000,split=True):
+    return three_peaks_conditional(shift_square,sample_size=sample_size)
 
