@@ -1,7 +1,7 @@
 from traitlets.config.configurable import Configurable
 from traitlets.config.application import  Application
 
-from traitlets import Unicode, Int, Float, List, Dict, Tuple
+from traitlets import Unicode, Int, Float, List, Dict, Tuple, Bool
 
 from IPython.core.getipython import get_ipython
 

@@ -18,15 +18,18 @@ from .wgan import WeightClip, wgan_loss
 class FFDBuilder(Builder):
 
     # --------------------------------------------------------------------------------------------------
-    def __init__(self,kernel_sizes,name="D",activation="sigmoid",clip_weights=None):
+    def __init__(self,kernel_sizes,name="D",activation="sigmoid",clip_weights=None,do_bn=False):
         self.kernel_sizes = kernel_sizes
         self.name = name
         self.activation = activation
         self.clip_weights = clip_weights
+        self.do_bn = do_bn
         super(FFDBuilder,self).__init__()
 
     # --------------------------------------------------------------------------------------------------
     def build(self,x_shape,c_shape=None):
+        
+        do_bn = copy(self.do_bn)
         input_shape = x_shape
         
         inputs = Input(input_shape,name="%s_input" % self.name)
@@ -41,7 +44,11 @@ class FFDBuilder(Builder):
             inputs = [inputs]
         ilayer = 1
         for ksize in self.kernel_sizes:
-            cur = self.get_unit("%s_down%d" % (self.name,ilayer),cur,ksize)
+            if do_bn != None:
+                bn = do_bn
+                if type(do_bn) == list:
+                    bn = do_bn.pop(0)
+            cur = self.get_unit("%s_down%d" % (self.name,ilayer),cur,ksize,bn=bn)
             ilayer += 1
             
         flat = Flatten(name="%s_flat" % self.name)(cur)
@@ -51,11 +58,13 @@ class FFDBuilder(Builder):
         return model
 
     # --------------------------------------------------------------------------------------------------
-    def get_unit(self,name,prev,n_out,dropout=None):
+    def get_unit(self,name,prev,n_out,dropout=None,bn=False):
 
         kernel_constraint=None
         if self.clip_weights:
             kernel_constraint = WeightClip(self.clip_weights)
+        if bn:
+            prev = BatchNormalization(prev, kernel_constraint=kernel_constraint) # makese sense??
         dense = Dense(n_out,use_bias=True,name="%s_dense" % name, kernel_constraint=kernel_constraint)(prev)
         
         if dropout != None:

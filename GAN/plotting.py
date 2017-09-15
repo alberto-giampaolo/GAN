@@ -113,7 +113,7 @@ def plot_summary_2d(target,generated,target_p,generated_p,solution=None,saveas=N
     
 # --------------------------------------------------------------------------------------------------
 def plot_summary_cond(target,c_target,generated,c_source,source,target_p,generated_p,
-                      do_slices=False,c_bounds = [-10,-1.,-0.5,0.,0.5,1.,10.]):
+                      do_slices=False,c_bounds = [-10,-1.,-0.5,0.,0.5,1.,10.], saveas=None):
     ## plt.subplot(2,2,1)
     ## # plt.hexbin(c_target,target)
     ## plt.scatter(c_target,target)
@@ -179,14 +179,16 @@ def plot_summary_cond(target,c_target,generated,c_source,source,target_p,generat
                                 generated[:,0,xdim][generated_slice.ravel()],
                                 source[:,0,xdim][generated_slice.ravel()],
                                 legend=False,bins=30
-                    ) 
+                    )
+            if saveas != None:
+                plt.savefig(saveas)
             plt.show()
 
         plt.figure(figsize=(5*n_cols,2.5))
     ## plot_hists(target_p,generated_p,range=[0,1])
     plot_hists(target_p,generated_p,range=None)
-    ## if saveas != None:
-    ##     plt.savefig(saveas)
+    ### if saveas != None:
+    ###     plt.savefig(saveas)
     plt.show()
 
     
