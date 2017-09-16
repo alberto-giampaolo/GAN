@@ -126,8 +126,10 @@ class MyGAN(object):
         test_y = self.gan_targets( test_x[0].shape[0] )
 
         plotter = plotting.SlicePlotter(self.get_generator(),
-                               self.get_discriminator(),
-                               x_test,z_test,c_x_test,c_z_test,plot_every=plot_every)
+                                        self.get_discriminator(),
+                                        x_test,z_test,c_x_test,c_z_test,plot_every=plot_every,
+                                        do_slices=True
+        )
         self.model.fit( train_x, train_y,  nb_epoch=n_epochs, batch_size=batch_size,
                         callbacks = [plotter], **kwargs
         )

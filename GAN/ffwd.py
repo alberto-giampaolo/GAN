@@ -18,18 +18,20 @@ from .wgan import WeightClip, wgan_loss
 class FFDBuilder(Builder):
 
     # --------------------------------------------------------------------------------------------------
-    def __init__(self,kernel_sizes,name="D",activation="sigmoid",clip_weights=None,do_bn=False):
+    def __init__(self,kernel_sizes,name="D",activation="sigmoid",clip_weights=None,do_bn=False,do_dropout=False):
         self.kernel_sizes = kernel_sizes
         self.name = name
         self.activation = activation
         self.clip_weights = clip_weights
         self.do_bn = do_bn
+        self.do_dropout = do_dropout
         super(FFDBuilder,self).__init__()
 
     # --------------------------------------------------------------------------------------------------
     def build(self,x_shape,c_shape=None):
         
         do_bn = copy(self.do_bn)
+        do_dropout = copy(self.do_dropout)
         input_shape = x_shape
         
         inputs = Input(input_shape,name="%s_input" % self.name)
@@ -48,7 +50,7 @@ class FFDBuilder(Builder):
                 bn = do_bn
                 if type(do_bn) == list:
                     bn = do_bn.pop(0)
-            cur = self.get_unit("%s_down%d" % (self.name,ilayer),cur,ksize,bn=bn)
+            cur = self.get_unit("%s_down%d" % (self.name,ilayer),cur,ksize,dropout=do_dropout,bn=bn)
             ilayer += 1
             
         flat = Flatten(name="%s_flat" % self.name)(cur)
@@ -84,13 +86,14 @@ class FFGBuilder(Builder):
 
     # --------------------------------------------------------------------------------------------------
     def __init__(self,kernel_sizes,do_down=False,do_skip=False,do_poly=False,do_bn=False,
-                 do_nl_activ=False,name="G"):
+                 do_nl_activ=False,do_dropout=False,name="G"):
         self.kernel_sizes = kernel_sizes
         self.do_down = do_down
         self.do_skip = do_skip
         self.do_poly = do_poly
         self.do_bn = do_bn
         self.do_nl_activ = do_nl_activ
+        self.do_dropout = do_dropout
         self.name = name
         super(FFGBuilder,self).__init__()
 
@@ -102,6 +105,7 @@ class FFGBuilder(Builder):
         do_poly = copy(self.do_poly)
         do_bn = copy(self.do_bn)
         do_nl_activ = copy(self.do_nl_activ)
+        do_dropout = copy(self.do_dropout)
         input_shape = z_shape
         output_shape = x_shape
         
@@ -127,7 +131,7 @@ class FFGBuilder(Builder):
         ilayer = 1
         if do_down:
             for ksize in self.kernel_sizes:
-                cur = self.get_unit("%s_down%d" % (ilayer,self.name),cur,ksize,skip=do_skip,bn=do_bn)
+                cur = self.get_unit("%s_down%d" % (ilayer,self.name),cur,ksize,dropout=do_dropout,skip=do_skip,bn=do_bn)
                 ilayer += 1
                 
         for ksize in reversed(self.kernel_sizes):
@@ -139,7 +143,7 @@ class FFGBuilder(Builder):
                 nl_activ = do_nl_activ
             if type(do_nl_activ) == list:
                 nl_activ = do_nl_activ.pop(0)            
-            cur = self.get_unit("%s_up%d" % (self.name,ilayer),cur,ksize,skip=do_skip,bn=bn,nl_activ=nl_activ)
+            cur = self.get_unit("%s_up%d" % (self.name,ilayer),cur,ksize,dropout=do_dropout,skip=do_skip,bn=bn,nl_activ=nl_activ)
             ilayer += 1
 
         output_size = 1

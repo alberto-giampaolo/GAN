@@ -9,6 +9,7 @@ class SlicePlotter(Callback):
 
     # --------------------------------------------------------------------------------------------------
     def __init__(self,generator,discriminator,x_test,z_test,c_x_test=None,c_z_test=None,plot_every=5,
+                 do_slices=False,
                  c_quantiles=[0,5,20,40,60,80,95,100]
     ):
         self.generator = generator
@@ -17,7 +18,9 @@ class SlicePlotter(Callback):
         self.z_test = z_test 
         self.c_x_test = c_x_test
         self.c_z_test = c_z_test
-
+        self.do_slices = do_slices
+        print('SlicePlotter do_slices', self.do_slices)
+        
         self.plot_every = plot_every
         self.has_c = type(self.c_x_test) != None
         if self.has_c:
@@ -32,7 +35,7 @@ class SlicePlotter(Callback):
             x_predict = self.generator.predict([self.c_z_test,self.z_test])[1]
             x_discrim = self.discriminator.predict([self.c_x_test,self.x_test])
             z_discrim = self.discriminator.predict([self.c_z_test,x_predict])
-            plot_summary_cond( self.x_test, self.c_x_test, x_predict, self.c_z_test, self.z_test , x_discrim, z_discrim, c_bounds=self.c_quantiles)
+            plot_summary_cond( self.x_test, self.c_x_test, x_predict, self.c_z_test, self.z_test , x_discrim, z_discrim, c_bounds=self.c_quantiles, do_slices=self.do_slices)
         else:
             x_predict = self.generator.predict(self.z_test)
             x_discrim = self.discriminator.predict(self.x_test)
@@ -46,12 +49,18 @@ class SlicePlotter(Callback):
 # --------------------------------------------------------------------------------------------------
 def plot_hists(target,generated,source=None,bins=60,range=[-5,5],legend=True,**kwargs):
     if range is None:
-        mins  = [target.min(),generated.min()]
-        maxes = [target.max(),generated.max()]
+        ## mins  = [target.min(),generated.min()]
+        ## maxes = [target.max(),generated.max()]
+        target_q = np.percentile(target,[5.,10.,90.,95.])
+        generated_q = np.percentile(generated,[5.,10.,90.,95.])
+        mins  = [2.*target_q[1]-target_q[0],2.*generated_q[1]-generated_q[0]]
+        maxes = [2.*target_q[3]-target_q[2],2.*generated_q[3]-generated_q[2]]
         if not source is None:
-            mins.append(source.min())
-            maxes.append(source.max())
+            source_q = np.percentile(source,[5.,10.,90.,95.])
+            mins.append(2.*source_q[1]-source_q[0])
+            maxes.append(2.*source_q[3]-source_q[2])
         range = [min(mins),max(maxes)]
+        print(target_q,generated_q,mins,maxes,range)
     plt.hist(generated,bins=bins,range=range,normed=True,label='generated',**kwargs)
     if not source is None:
         target_hist,target_edges = np.histogram(target,bins=bins,range=range,normed=False)
@@ -75,7 +84,7 @@ def plot_hists(target,generated,source=None,bins=60,range=[-5,5],legend=True,**k
 def plot_summary(target,generated,source,target_p,generated_p,solution=None,saveas=None):
 
     plt.subplot(2,1,1)
-    plot_hists(target,generated)
+    plot_hists(target,generated,range=None)
     
     plt.subplot(2,2,3)
     plot_hists(target_p,generated_p,range=[0,1])
@@ -178,7 +187,7 @@ def plot_summary_cond(target,c_target,generated,c_source,source,target_p,generat
                     plot_hists( target[:,0,xdim][target_slice.ravel()],
                                 generated[:,0,xdim][generated_slice.ravel()],
                                 source[:,0,xdim][generated_slice.ravel()],
-                                legend=False,bins=30
+                                legend=False,bins=30,range=None
                     )
             if saveas != None:
                 plt.savefig(saveas)
