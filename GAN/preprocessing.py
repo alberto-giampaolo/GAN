@@ -1,5 +1,6 @@
 from sklearn.preprocessing import RobustScaler, QuantileTransformer
-
+import pandas as pd
+import numpy as np
 
 default_tranformers = dict(minmax=RobustScaler(quantile_range=(10.,90.)),
                            gaus=QuantileTransformer(output_distribution="normal",n_quantiles=1000))
@@ -30,3 +31,27 @@ def transform(data_x,data_c,mc_x,mc_c,transform='minmax',reshape=True,return_sca
         return data_x,data_c,mc_x,mc_c,scaler_x,scaler_c
 
     return data_x,data_c,mc_x,mc_c
+
+# ------------------------------------------------------------------------------------------------
+def reweight(mc,inputs,bins,weights,base=None):
+
+    def rewei(X):
+        thebin = []
+        for idim in range(len(weights.shape)):
+            thebin.append(max(0,min(weights.shape[idim]-1,X[idim])))
+        ## #xbin = max(0,min(weights.shape[0]-1,x[0]))
+        ## #ybin = max(0,min(weights.shape[1]-1,x[1]))
+        ## #return weights[xbin,ybin]
+        return weights[tuple(thebin)]
+
+    def discretize(df,col,bounds):
+        cmin = np.abs( df[col] ).min()
+        return pd.cut( (np.abs(df[col])-cmin)*np.sign(df[col]),
+                       bounds, labels=range(bounds.shape[0]-1) ).astype(np.int)
+    
+    tmp = pd.DataFrame(  { inp[0] : discretize(mc,inp[0],inp[1]) for inp in zip(inputs,bins) } )
+    mc['train_weight'] = tmp[inputs].apply( rewei, axis=1, raw=True)
+    if not base is None:
+        mc['train_weight'] *= mc[base]
+    
+    return mc['train_weight'].values

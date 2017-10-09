@@ -8,7 +8,10 @@ zee_data_repo="root://t3se01.psi.ch:1094//store/user/musella/zee_data_mc"
 
 zmm_8TeV_data_repo="root://t3se01.psi.ch:1094//store/user/musella/zmm_8TeV"
 
+cache=os.environ.get("SCRATCH","./")
+
 def read_hdf(fname,data_repo=None):
+    fname = os.path.join(cache,fname)
     if not os.path.exists(fname) and data_repo != None:
         os.system( "xrdcp %s/%s ." % (data_repo,fname) )
     return pd.read_hdf(fname)
