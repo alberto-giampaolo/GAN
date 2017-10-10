@@ -16,6 +16,8 @@ reload(plotting)
 from keras.models import Model
 from keras import backend as K
 
+from keras.optimizers import Adam, RMSprop
+import keras.optimizers
 
 from keras_adversarial import AdversarialOptimizerSimultaneous, AdversarialOptimizerScheduled
 from keras_adversarial import AdversarialModel
@@ -296,3 +298,54 @@ class MyCheckPoint(Callback):
 
 
 
+# --------------------------------------------------------------------------------------------------
+class DMBuilder(Builder):
+
+    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
+                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+        self.optimizer = optimizer
+        if type(self.optimizer) == str:
+            self.optimizer = getattr(keras.optimizers,self.optimizer)
+        self.opt_kwargs = opt_kwargs
+        self.loss = loss
+        super(DMBuilder,self).__init__()
+
+    def build(self,discriminator,do_compile=True):
+        with K.name_scope("dm"):
+            optimizer = self.optimizer(**self.opt_kwargs)
+            if do_compile:
+                discriminator.trainable = True
+            dm = Model(inputs=discriminator.inputs,outputs=discriminator.outputs)
+            if do_compile:
+                dm.compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
+                return dm
+            else:
+                return dm, optimizer
+
+# --------------------------------------------------------------------------------------------------
+class AMBuilder(Builder):
+
+    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
+                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+        self.optimizer = optimizer
+        if type(self.optimizer) == str:
+            self.optimizer = getattr(keras.optimizers,self.optimizer)
+        self.opt_kwargs = opt_kwargs
+        super(AMBuilder,self).__init__()
+        self.loss = loss
+        
+    def build(self,generator,discriminator,do_compile=True):
+        optimizer = self.optimizer(**self.opt_kwargs)
+
+        with K.name_scope("am"):
+            if do_compile:
+                discriminator.trainable = False
+            wrapped_generator = generator(generator.inputs)
+            wrapped_discriminator = (discriminator[0](generator.outputs),discriminator[1](generator.outputs))
+            am = (Model(inputs=generator.inputs,outputs=wrapped_discriminator[0]),Model(inputs=generator.inputs,outputs=wrapped_discriminator[1]))
+            if do_compile:
+                am[0].compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
+                am[1].compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
+                return am
+            else:
+                return am,optimizer

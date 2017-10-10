@@ -14,6 +14,7 @@ from . import plotting
 from .base import Builder, MyGAN
 
 from .ffwd import MyFFGAN
+from .pseudoq import MyPQGAN
 
 from .wgan import WeightClip, wgan_loss
 
