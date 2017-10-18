@@ -4,6 +4,12 @@ import numpy as np
 from keras.callbacks import Callback
 
 
+batch = False
+def plt_show():
+    if not batch:
+        plt.show()
+
+
 # --------------------------------------------------------------------------------------------------
 class SlicePlotter(Callback):
 
@@ -12,7 +18,7 @@ class SlicePlotter(Callback):
                  w_x_test=None, w_z_test=None,
                  plot_every=5,
                  do_slices=False,
-                 c_quantiles=[0,5,20,40,60,80,95,100], saveas=""
+                 c_quantiles=[0,5,20,40,60,80,95,100], saveas="",**kwargs
     ):
         self.generator = generator
         self.discriminator = discriminator
@@ -29,8 +35,12 @@ class SlicePlotter(Callback):
         self.saveas = saveas
         self.last_epoch = 0
         if self.has_c:
-            self.c_quantiles = np.percentile(c_x_test,c_quantiles)
-        
+            self.c_quantiles = np.percentile(c_x_test,c_quantiles)        
+        if batch and not 'do_discrim' in kwargs:
+            self.do_discrim=False
+        else:
+            self.do_discrim = kwargs.get('do_discrim',True)
+            
     def on_epoch_end(self, epoch, logs={}):
 
         self.last_epoch = epoch
@@ -39,8 +49,12 @@ class SlicePlotter(Callback):
         
         if self.has_c:
             x_predict = self.generator.predict([self.c_z_test,self.z_test])[1]
-            x_discrim = self.discriminator.predict([self.c_x_test,self.x_test])
-            z_discrim = self.discriminator.predict([self.c_z_test,x_predict])
+            if self.do_discrim:
+                x_discrim = self.discriminator.predict([self.c_x_test,self.x_test])
+                z_discrim = self.discriminator.predict([self.c_z_test,x_predict])
+            else:
+                x_discrim = None
+                z_discrim = None
             plot_summary_cond( self.x_test, self.c_x_test, x_predict, self.c_z_test, self.z_test ,
                                x_discrim, z_discrim,
                                target_w=self.w_x_test, generated_w=self.w_z_test,
@@ -63,20 +77,22 @@ class SlicePlotter(Callback):
 def plot_hists(target,generated,source=None,target_w=None,generated_w=None,
                bins=60,range=[-5,5],legend=True,**kwargs):
     if range is None:
-        ## mins  = [target.min(),generated.min()]
-        ## maxes = [target.max(),generated.max()]
-        target_q = np.percentile(target,[5.,10.,90.,95.])
-        generated_q = np.percentile(generated,[5.,10.,90.,95.])
-        mins  = [2.*target_q[1]-target_q[0],2.*generated_q[1]-generated_q[0]]
-        maxes = [2.*target_q[3]-target_q[2],2.*generated_q[3]-generated_q[2]]
+        mins  = [target.min(),generated.min()]
+        maxes = [target.max(),generated.max()]
+        ## target_q = np.percentile(target,[5.,10.,90.,95.])
+        ## generated_q = np.percentile(generated,[5.,10.,90.,95.])
+        ## mins  = [2.*target_q[1]-target_q[0],2.*generated_q[1]-generated_q[0]]
+        ## maxes = [2.*target_q[3]-target_q[2],2.*generated_q[3]-generated_q[2]]
         if not source is None:
             source_q = np.percentile(source,[5.,10.,90.,95.])
             mins.append(2.*source_q[1]-source_q[0])
             maxes.append(2.*source_q[3]-source_q[2])
         range = [min(mins),max(maxes)]
-        print(range)
-    plt.hist(generated,bins=bins,weights=generated_w,
-             range=range,normed=True,label='generated',**kwargs)
+    try:
+        plt.hist(generated,bins=bins,weights=generated_w,
+                 range=range,normed=True,label='generated',**kwargs)
+    except Exception as ex:
+        print(ex)
     if not source is None:
         target_hist,target_edges = np.histogram(target,weights=target_w,
                                                 bins=bins,range=range,normed=False)
@@ -116,7 +132,7 @@ def plot_summary(target,generated,source,target_p,generated_p,solution=None,save
 
     if saveas != None:
         plt.savefig(saveas)
-    plt.show()
+    plt_show()
 
 # --------------------------------------------------------------------------------------------------
 def plot_summary_2d(target,generated,target_p,generated_p,solution=None,saveas=None):
@@ -134,7 +150,7 @@ def plot_summary_2d(target,generated,target_p,generated_p,solution=None,saveas=N
     
     if saveas != None:
         plt.savefig(saveas)
-    plt.show()
+    plt_show()
 
         
     
@@ -204,13 +220,16 @@ def plot_summary_cond(target,c_target,generated,c_source,source,target_p,generat
                     )
             if saveas != None:
                 plt.savefig(saveas % xdim)
-            plt.show()
+            plt_show()
 
-        plt.figure(figsize=(5*n_cols,2.5))
-    try:
-        plot_hists(target_p,generated_p,target_w=target_w,generated_w=generated_w,range=None)
-    except Exception:
-        pass
-    plt.show()
+        if not target_p is None:
+            plt.figure(figsize=(5*n_cols,2.5))
+            
+    if not target_p is None:
+        try:
+            plot_hists(target_p,generated_p,target_w=target_w,generated_w=generated_w,range=None)
+        except Exception:
+            pass
+        plt_show()
 
     

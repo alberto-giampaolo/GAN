@@ -8,6 +8,8 @@ from keras.models import Model, Sequential
 import keras.optimizers
 from keras.optimizers import Adam, RMSprop
 
+from keras.regularizers import l1,l2
+
 from keras import backend as K
 
 from copy import copy
@@ -79,7 +81,7 @@ class FFDBuilder(Builder):
         dense = (dense_layer(prev[0]),dense_layer(prev[1]))
         
         if bn:
-            batch_norm = BatchNormalization(name="%s_bn" % name,momentum=.5)
+            batch_norm = BatchNormalization(name="%s_bn" % name,momentum=.5,beta_constraint=constraint,gamma_constraint=constraint)
             dense = (batch_norm(dense[0]),batch_norm(dense[1]))
 
         if dropout:
@@ -100,7 +102,8 @@ class FFGBuilder(Builder):
 
     # --------------------------------------------------------------------------------------------------
     def __init__(self,kernel_sizes,do_down=False,do_skip=False,do_poly=False,do_bn=False,
-                 do_nl_activ=False,do_dropout=False,name="G"):
+                 do_nl_activ=False,do_dropout=False,do_weight_reg=False,do_last_l1reg=False,
+                 name="G"):
         self.kernel_sizes = kernel_sizes
         self.do_down = do_down
         self.do_skip = do_skip
@@ -108,6 +111,8 @@ class FFGBuilder(Builder):
         self.do_bn = do_bn
         self.do_nl_activ = do_nl_activ
         self.do_dropout = do_dropout
+        self.do_weight_reg = do_weight_reg
+        self.do_last_l1reg = do_last_l1reg
         self.name = name
         super(FFGBuilder,self).__init__()
 
@@ -168,7 +173,9 @@ class FFGBuilder(Builder):
         output = cur
         
         # output = Dense(output_size,activation="relu",use_bias=True,name="%s_output" % self.name)(output)
-        output = Dense(output_size,use_bias=True,name="%s_output" % self.name)(output)
+        if self.do_last_l1reg:
+            reg = l1(self.do_last_l1reg)
+        output = Dense(output_size,use_bias=True,name="%s_output" % self.name,kernel_regularizer=reg)(output)
         if not do_skip and not do_poly:
             ## output = PReLU(name="%s_actviation" % self.name)(output)
             output = Add(name="%s_add" % self.name)([x_inputs,output])
@@ -198,7 +205,10 @@ class FFGBuilder(Builder):
 
         inp = prev        
 
-        dense_layer = Dense(n_out,use_bias=True,name="%s_dense" % name)
+        kernel_reg = None
+        if self.do_weight_reg:
+            kernel_reg = l2(self.do_weight_reg)
+        dense_layer = Dense(n_out,use_bias=True,name="%s_dense" % name,kernel_regularizer=kernel_reg)
         dense = dense_layer(prev)
 
         if bn:
