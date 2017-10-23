@@ -34,10 +34,12 @@ class AdversarialOptimizerSimultaneousWithLoops(object):
 class WeightClip(Constraint):
     '''Clips the weights incident to each hidden unit to be inside a range
     '''
-    def __init__(self, c=2):
+    def __init__(self, c=2, **kwargs):
         self.c = c
-
+        print('WeightClip',self.c)
+        
     def __call__(self, p):
+        print('calling WeightClip',self.c)
         return K.clip(p, -self.c, self.c)
 
     def get_config(self):
@@ -48,3 +50,5 @@ class WeightClip(Constraint):
 # ------------------------------------------------------------------------------------------------
 def wgan_loss(y_true, y_pred): # y = 1:true, -1:fake
     return -K.mean(y_true * y_pred, axis = -1)
+
+

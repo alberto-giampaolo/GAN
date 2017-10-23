@@ -8,73 +8,91 @@ from keras.models import Model, Sequential
 import keras.optimizers
 from keras.optimizers import Adam, RMSprop
 
+from keras.regularizers import l1,l2
+
+from keras import backend as K
+
 from copy import copy
 
-from .base import Builder, MyGAN
+from .base import Builder, MyGAN, DMBuilder, AMBuilder
 
 from .wgan import WeightClip, wgan_loss
+
 
 # --------------------------------------------------------------------------------------------------
 class FFDBuilder(Builder):
 
     # --------------------------------------------------------------------------------------------------
-    def __init__(self,kernel_sizes,name="D",activation="sigmoid",clip_weights=None,do_bn=False):
+    def __init__(self,kernel_sizes,name="D",activation="sigmoid",clip_weights=None,do_bn=False,do_dropout=False):
         self.kernel_sizes = kernel_sizes
         self.name = name
         self.activation = activation
         self.clip_weights = clip_weights
         self.do_bn = do_bn
+        self.do_dropout = do_dropout
         super(FFDBuilder,self).__init__()
 
     # --------------------------------------------------------------------------------------------------
     def build(self,x_shape,c_shape=None):
         
         do_bn = copy(self.do_bn)
+        do_dropout = copy(self.do_dropout)
         input_shape = x_shape
         
         inputs = Input(input_shape,name="%s_input" % self.name)
         if c_shape != None:
             c_inputs = Input(c_shape,name="%s_c_input" % self.name)
             cur = concatenate( [c_inputs,inputs], name = "%s_all_inputs" % self.name )
-            ### cur = Reshape((2,1))(cur)
-            ### cur = Cropping1D( cropping=(1,0) )(cur)
             inputs = [c_inputs,inputs]
         else:
             cur = inputs
             inputs = [inputs]
+        # two paths: w and w/o dropout
+        cur = (cur,cur)
+        
         ilayer = 1
         for ksize in self.kernel_sizes:
             if do_bn != None:
                 bn = do_bn
                 if type(do_bn) == list:
                     bn = do_bn.pop(0)
-            cur = self.get_unit("%s_down%d" % (self.name,ilayer),cur,ksize,bn=bn)
+            cur = self.get_unit("%s_down%d" % (self.name,ilayer),cur,ksize,dropout=do_dropout,bn=bn)
             ilayer += 1
             
-        flat = Flatten(name="%s_flat" % self.name)(cur)
-        output = Dense(1,activation=self.activation,name="%s_output" % self.name)(flat)
+        flatten_layer = Flatten(name="%s_flat" % self.name)
+        flat = (flatten_layer(cur[0]),flatten_layer(cur[1]))
+        constraint=None
+        if self.clip_weights:
+            constraint = WeightClip(self.clip_weights)
+        output_layer = Dense(1,activation=self.activation,name="%s_output" % self.name,kernel_constraint=constraint, bias_constraint=constraint)
+        output = (output_layer(flat[0]),output_layer(flat[1]))
             
-        model = Model(inputs=inputs,outputs=[output])
+        model = (Model(inputs=inputs,outputs=[output[0]]),Model(inputs=inputs,outputs=[output[1]]))
         return model
 
     # --------------------------------------------------------------------------------------------------
-    def get_unit(self,name,prev,n_out,dropout=None,bn=False):
+    def get_unit(self,name,prev,n_out,dropout=False,bn=False):
 
-        kernel_constraint=None
+        constraint=None
         if self.clip_weights:
-            kernel_constraint = WeightClip(self.clip_weights)
-        if bn:
-            prev = BatchNormalization(prev, kernel_constraint=kernel_constraint) # makese sense??
-        dense = Dense(n_out,use_bias=True,name="%s_dense" % name, kernel_constraint=kernel_constraint)(prev)
+            constraint = WeightClip(self.clip_weights)
+            
+        dense_layer = Dense(n_out,use_bias=True,name="%s_dense" % name, kernel_constraint=constraint, bias_constraint=constraint)
+        dense = (dense_layer(prev[0]),dense_layer(prev[1]))
         
-        if dropout != None:
-            dense = Dropout(dropout,name="%s_dropout"%name)(dense)
+        if bn:
+            batch_norm = BatchNormalization(name="%s_bn" % name,momentum=.5,beta_constraint=constraint,gamma_constraint=constraint)
+            dense = (batch_norm(dense[0]),batch_norm(dense[1]))
+
+        if dropout:
+            dense = (Dropout(dropout,name="%s_dropout"%name)(dense[0]),dense[1])
             
         output_layer = Activation("relu",name="%s_activ"%name)
         ## output_layer = Activation("tanh",name="%s_activ"%name)
         ## output_layer = LeakyReLU(name="%s_activ"%name) 
         ## output_layer = PReLU(name="%s_activ"%name)
-        output = output_layer(dense)
+        output = (output_layer(dense[0]),output_layer(dense[1]))
+        
         
         return output
 
@@ -84,13 +102,17 @@ class FFGBuilder(Builder):
 
     # --------------------------------------------------------------------------------------------------
     def __init__(self,kernel_sizes,do_down=False,do_skip=False,do_poly=False,do_bn=False,
-                 do_nl_activ=False,name="G"):
+                 do_nl_activ=False,do_dropout=False,do_weight_reg=False,do_last_l1reg=False,
+                 name="G"):
         self.kernel_sizes = kernel_sizes
         self.do_down = do_down
         self.do_skip = do_skip
         self.do_poly = do_poly
         self.do_bn = do_bn
         self.do_nl_activ = do_nl_activ
+        self.do_dropout = do_dropout
+        self.do_weight_reg = do_weight_reg
+        self.do_last_l1reg = do_last_l1reg
         self.name = name
         super(FFGBuilder,self).__init__()
 
@@ -102,6 +124,7 @@ class FFGBuilder(Builder):
         do_poly = copy(self.do_poly)
         do_bn = copy(self.do_bn)
         do_nl_activ = copy(self.do_nl_activ)
+        do_dropout = copy(self.do_dropout)
         input_shape = z_shape
         output_shape = x_shape
         
@@ -127,7 +150,7 @@ class FFGBuilder(Builder):
         ilayer = 1
         if do_down:
             for ksize in self.kernel_sizes:
-                cur = self.get_unit("%s_down%d" % (ilayer,self.name),cur,ksize,skip=do_skip,bn=do_bn)
+                cur = self.get_unit("%s_down%d" % (ilayer,self.name),cur,ksize,dropout=do_dropout,skip=do_skip,bn=do_bn)
                 ilayer += 1
                 
         for ksize in reversed(self.kernel_sizes):
@@ -139,7 +162,7 @@ class FFGBuilder(Builder):
                 nl_activ = do_nl_activ
             if type(do_nl_activ) == list:
                 nl_activ = do_nl_activ.pop(0)            
-            cur = self.get_unit("%s_up%d" % (self.name,ilayer),cur,ksize,skip=do_skip,bn=bn,nl_activ=nl_activ)
+            cur = self.get_unit("%s_up%d" % (self.name,ilayer),cur,ksize,dropout=do_dropout,skip=do_skip,bn=bn,nl_activ=nl_activ)
             ilayer += 1
 
         output_size = 1
@@ -150,8 +173,9 @@ class FFGBuilder(Builder):
         output = cur
         
         # output = Dense(output_size,activation="relu",use_bias=True,name="%s_output" % self.name)(output)
-        output = Dense(output_size,use_bias=True,name="%s_output" % self.name)(output)
-
+        if self.do_last_l1reg:
+            reg = l1(self.do_last_l1reg)
+        output = Dense(output_size,use_bias=True,name="%s_output" % self.name,kernel_regularizer=reg)(output)
         if not do_skip and not do_poly:
             ## output = PReLU(name="%s_actviation" % self.name)(output)
             output = Add(name="%s_add" % self.name)([x_inputs,output])
@@ -177,17 +201,21 @@ class FFGBuilder(Builder):
         return model
     
     # --------------------------------------------------------------------------------------------------
-    def get_unit(self,name,prev,n_out,dropout=None,activate=False,skip=False,bn=False,nl_activ=False):
+    def get_unit(self,name,prev,n_out,dropout=False,activate=False,skip=False,bn=False,nl_activ=False):
 
         inp = prev        
-        if bn:
-            prev = BatchNormalization(name="%s_bn" % name,momentum=.5)(prev)
-    
-        if dropout != None:
-            prev = Dropout(dropout,name="%s_dropout"%name)(prev)
 
-        dense_layer = Dense(n_out,use_bias=True,name="%s_dense" % name)
+        kernel_reg = None
+        if self.do_weight_reg:
+            kernel_reg = l2(self.do_weight_reg)
+        dense_layer = Dense(n_out,use_bias=True,name="%s_dense" % name,kernel_regularizer=kernel_reg)
         dense = dense_layer(prev)
+
+        if bn:
+            dense = BatchNormalization(name="%s_bn" % name,momentum=.5)(dense)
+    
+        if dropout:
+            dense = Dropout(dropout,name="%s_dropout"%name)(dense)
 
         if nl_activ != False:
             typ = "sigmoid" if type(nl_activ) != str else nl_activ
@@ -216,56 +244,6 @@ class FFGBuilder(Builder):
 
     
         return output
-
-
-# --------------------------------------------------------------------------------------------------
-class DMBuilder(Builder):
-
-    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
-                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
-        self.optimizer = optimizer
-        if type(self.optimizer) == str:
-            self.optimizer = getattr(keras.optimizers,self.optimizer)
-        self.opt_kwargs = opt_kwargs
-        self.loss = loss
-        super(DMBuilder,self).__init__()
-
-    def build(self,discriminator,do_compile=True):
-        optimizer = self.optimizer(**self.opt_kwargs)
-        if do_compile:
-            discriminator.trainable = True
-        dm = Model(inputs=discriminator.inputs,outputs=discriminator.outputs)
-        if do_compile:
-            dm.compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
-            return dm
-        else:
-            return dm, optimizer
-
-# --------------------------------------------------------------------------------------------------
-class AMBuilder(Builder):
-
-    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
-                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
-        self.optimizer = optimizer
-        if type(self.optimizer) == str:
-            self.optimizer = getattr(keras.optimizers,self.optimizer)
-        self.opt_kwargs = opt_kwargs
-        super(AMBuilder,self).__init__()
-        self.loss = loss
-        
-    def build(self,generator,discriminator,do_compile=True):
-        optimizer = self.optimizer(**self.opt_kwargs)
-
-        if do_compile:
-            discriminator.trainable = False
-        wrapped_generator = generator(generator.inputs)
-        wrapped_discriminator = discriminator(generator.outputs)
-        am = Model(inputs=generator.inputs,outputs=wrapped_discriminator)
-        if do_compile:
-            am.compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
-            return am
-        else:
-            return am,optimizer
         
 # --------------------------------------------------------------------------------------------------
 class MyFFGAN(MyGAN):

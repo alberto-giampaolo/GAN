@@ -2,8 +2,8 @@
 
 inp=$1 && shift
 
-if [[ -z $1 ]] && [[ $1 != --* ]]; then
-    out=$1
+if [[ -n $1 ]] && [[ $1 != --* ]]; then
+    out="--output $1"
     shift
 else
     inp="--inplace $inp"
@@ -17,6 +17,6 @@ set -x
 
 export MY_APP_ARGS="$opts"
 
-jupyter nbconvert --debug --execute --to notebook --ExecutePreprocessor.timeout=-1 $inp $out
+jupyter nbconvert --debug --allow-errors --execute --to notebook --ExecutePreprocessor.timeout=-1 $inp $out
 
 ## --allow-errors 

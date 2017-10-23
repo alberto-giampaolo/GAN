@@ -1,5 +1,8 @@
 import numpy as np
 
+import os
+from keras.callbacks import Callback
+
 try:
     reload  # Python 2.7
 except NameError:
@@ -11,10 +14,16 @@ from . import plotting
 reload(plotting)
 
 from keras.models import Model
+from keras import backend as K
+
+from keras.optimizers import Adam, RMSprop
+import keras.optimizers
 
 from keras_adversarial import AdversarialOptimizerSimultaneous, AdversarialOptimizerScheduled
 from keras_adversarial import AdversarialModel
 from keras_adversarial.adversarial_utils import gan_targets
+
+from keras.callbacks import TensorBoard, CSVLogger, ModelCheckpoint
 
 from .wgan import AdversarialOptimizerSimultaneousWithLoops
 
@@ -71,23 +80,27 @@ class MyGAN(object):
 
     # --------------------------------------------------------------------------------------------------
     def adversarial_compile(self,loss='binary_crossentropy',schedule=None):
-        dm,dmop = self.dmBuilder(self.get_discriminator(),do_compile=False)
+        dm,dmop = self.dmBuilder(self.get_discriminator()[0],do_compile=False)
         am,amop = self.amBuilder(self.get_generator(),self.get_discriminator(),do_compile=False)
 
         self.am = am
         self.dm = dm
-        self.gan = Model( inputs=am.inputs + dm.inputs, outputs=am.outputs+dm.outputs )
+        ## self.gan = Model( inputs=am.inputs + dm.inputs, outputs=am.outputs+dm.outputs )
+        self.player_models = ( Model( inputs=am[0].inputs + dm.inputs, outputs=am[0].outputs+dm.outputs ), Model( inputs=am[1].inputs + dm.inputs, outputs=am[1].outputs+dm.outputs ) )
         
-        self.model = AdversarialModel(base_model=self.gan,
-                                      player_params=[self.get_generator().trainable_weights,
-                                                     self.get_discriminator().trainable_weights],
-                                      player_names=["generator", "discriminator"])
+        self.model = AdversarialModel(player_models = self.player_models,
+                                      ## base_model=self.gan,            
+                                      player_params=[self.get_discriminator()[0].trainable_weights,
+                                                     self.get_generator().trainable_weights],
+                                      player_names=["discriminator", "generator"])
 
         ## optimizer = AdversarialOptimizerSimultaneousWithLoops(nloops=nloops)
         if not schedule is None:
             optimizer = AdversarialOptimizerScheduled(schedule)
         else:
             optimizer = AdversarialOptimizerSimultaneous()
+
+        print(loss)
         self.model.adversarial_compile(adversarial_optimizer=optimizer,
                                        player_optimizers=[amop, dmop],
                                        loss=loss)
@@ -96,24 +109,38 @@ class MyGAN(object):
     # --------------------------------------------------------------------------------------------------
     def adversarial_fit(self,
                         x_train,z_train,c_x_train=None,c_z_train=None,
+                        w_x_train=None,w_z_train=None,
                         x_test=None,z_test=None,c_x_test=None,c_z_test=None,
-                        batch_size=256,n_epochs=50,plot_every=5,**kwargs
+                        w_x_test=None,w_z_test=None,
+                        batch_size=256,n_epochs=50,plot_every=5,
+                        monitor_dir="log",
+                        checkpoint_every=50,
+                        **kwargs
     ):
         if  x_test  is None:
             x_test = x_train
         if  z_test  is None:
             z_test = z_train
         if  c_x_test  is None:
-            c_x_test = c_x_test
+            c_x_test = c_x_train
         if  c_z_test  is None:
             c_z_test = c_z_train
+        if  w_x_test  is None:
+            w_x_test = w_x_train
+        if  w_z_test  is None:
+            w_z_test = w_z_train
 
         if  c_z_train  is None:
             c_z_train = c_x_train
         if  c_z_test  is None:
             c_z_test = c_x_test
+        if  w_z_train  is None:
+            w_z_train = w_x_train
+        if  w_z_test  is None:
+            w_z_test = w_x_test
             
         has_c = not c_x_train is None
+        has_w = not w_x_train is None
 
         if has_c:
             train_x = [ c_z_train, z_train, c_x_train, x_train  ]
@@ -124,12 +151,32 @@ class MyGAN(object):
 
         train_y = self.gan_targets( train_x[0].shape[0] )
         test_y = self.gan_targets( test_x[0].shape[0] )
-
+        if has_w:
+            train_w = [ w_z_train, w_x_train, w_z_train, w_x_train  ]
+            test_w = [ w_z_test, w_x_test, w_z_test, w_x_test  ]
+        else:
+            train_w = None
+            test_w = None
+        
+        if not os.path.exists(monitor_dir):
+            os.mkdir(monitor_dir)
         plotter = plotting.SlicePlotter(self.get_generator(),
-                               self.get_discriminator(),
-                               x_test,z_test,c_x_test,c_z_test,plot_every=plot_every)
-        self.model.fit( train_x, train_y,  nb_epoch=n_epochs, batch_size=batch_size,
-                        callbacks = [plotter], **kwargs
+                                        self.get_discriminator()[1],
+                                        x_test,z_test,c_x_test,c_z_test,plot_every=plot_every,
+                                        w_x_test=w_x_test,w_z_test=w_z_test,
+                                        do_slices=True, saveas='%s/sample' % monitor_dir
+        )
+        tensorboard = TensorBoard(log_dir='%s/tensorboard' % monitor_dir, histogram_freq=0)
+        csv = CSVLogger("%s/metrics.csv" % monitor_dir)
+        ## checkpoint = ModelCheckpoint("%s/model-{epoch:02d}.hdf5" % monitor_dir, monitor='loss',
+        ##                              save_best_only=False, save_weights_only=True,
+        ##                              period=checkpoint_every)
+        checkpoint = MyCheckPoint(self, "%s/" % monitor_dir, checkpoint_every)
+        
+        self.model.name = "adversarial_model"
+        self.model.fit( train_x, train_y,  sample_weight=train_w,
+                        nb_epoch=n_epochs, batch_size=batch_size,
+                        callbacks = [checkpoint,csv,tensorboard,plotter], **kwargs
         )
 
     # --------------------------------------------------------------------------------------------------
@@ -220,3 +267,85 @@ class MyGAN(object):
 
 
 
+# --------------------------------------------------------------------------------------------------
+class MyCheckPoint(Callback):
+
+    def __init__(self,gan,prefix,save_every=1):
+
+        self.gan = gan
+        self.save_every = save_every
+        self.prefix = prefix
+        if not os.path.isdir(self.prefix):
+            self.prefix += "_"
+        else:
+            self.prefix += "/"
+        
+    def on_epoch_end(self, epoch, logs={}):
+
+        if epoch % self.save_every != 0:
+            return
+        
+        self.gan.get_generator().save('%sgenerator-epoch%d.hdf5' % (self.prefix,epoch ) )
+        self.gan.get_discriminator()[0].save('%sdiscriminator0-epoch%d.hdf5' % (self.prefix,epoch) )
+        self.gan.get_discriminator()[1].save('%sdiscriminator1-epoch%d.hdf5' % (self.prefix,epoch) )
+
+        ## _,dmop = self.gan.dmBuilder(self.gan.get_discriminator(),do_compile=False)
+        ## _,amop = self.gan.amBuilder(self.gan.get_generator(),self.gan.get_discriminator(),do_compile=False)
+        ## dmop.save_weights('%sdm_optimizer.hdf5' % self.prefix)
+        ## amop.save_weights('%sam_optimizer.hdf5' % self.prefix)
+        
+        
+
+
+
+# --------------------------------------------------------------------------------------------------
+class DMBuilder(Builder):
+
+    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
+                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+        self.optimizer = optimizer
+        if type(self.optimizer) == str:
+            self.optimizer = getattr(keras.optimizers,self.optimizer)
+        self.opt_kwargs = opt_kwargs
+        self.loss = loss
+        super(DMBuilder,self).__init__()
+
+    def build(self,discriminator,do_compile=True):
+        with K.name_scope("dm"):
+            optimizer = self.optimizer(**self.opt_kwargs)
+            if do_compile:
+                discriminator.trainable = True
+            dm = Model(inputs=discriminator.inputs,outputs=discriminator.outputs)
+            if do_compile:
+                dm.compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
+                return dm
+            else:
+                return dm, optimizer
+
+# --------------------------------------------------------------------------------------------------
+class AMBuilder(Builder):
+
+    def __init__(self,optimizer=RMSprop,loss='binary_crossentropy',
+                 opt_kwargs=dict(lr=0.0002, decay=6e-8)):
+        self.optimizer = optimizer
+        if type(self.optimizer) == str:
+            self.optimizer = getattr(keras.optimizers,self.optimizer)
+        self.opt_kwargs = opt_kwargs
+        super(AMBuilder,self).__init__()
+        self.loss = loss
+        
+    def build(self,generator,discriminator,do_compile=True):
+        optimizer = self.optimizer(**self.opt_kwargs)
+
+        with K.name_scope("am"):
+            if do_compile:
+                discriminator.trainable = False
+            wrapped_generator = generator(generator.inputs)
+            wrapped_discriminator = (discriminator[0](generator.outputs),discriminator[1](generator.outputs))
+            am = (Model(inputs=generator.inputs,outputs=wrapped_discriminator[0]),Model(inputs=generator.inputs,outputs=wrapped_discriminator[1]))
+            if do_compile:
+                am[0].compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
+                am[1].compile(loss=self.loss, optimizer=optimizer,metrics=['accuracy'])
+                return am
+            else:
+                return am,optimizer
