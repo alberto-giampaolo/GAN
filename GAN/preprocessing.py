@@ -8,7 +8,7 @@ default_tranformers = dict(minmax=RobustScaler(quantile_range=(10.,90.)),
 def transform(data_x,data_c,mc_x,mc_c,transform='minmax',reshape=True,return_scalers=True):
     from sklearn.base import clone
     
-    if type(transform) == str:
+    if type(transform) == str or type(transform) == unicode:
         transform = default_tranformers[transform]
     
     scaler_x = clone(transform)
