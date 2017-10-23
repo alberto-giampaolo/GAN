@@ -55,3 +55,10 @@ def reweight(mc,inputs,bins,weights,base=None):
         mc['train_weight'] *= mc[base]
     
     return mc['train_weight'].values
+
+
+
+# ------------------------------------------------------------------------------------------------
+def reweight_multidim(X,clf,epsilon = 1.e-3):
+    return np.apply_along_axis(lambda x: x[0]/(x[1]+epsilon), 1, clf.predict_proba(X))
+

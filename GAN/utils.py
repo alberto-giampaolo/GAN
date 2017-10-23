@@ -50,3 +50,16 @@ class MyApp(Application):
         if self.config_file:
             self.load_config_file(self.config_file)
         
+import pickle
+from gzip import open as gopen
+
+def to_pickle(name,obj):
+    with gopen('%s.pkl.gz' % name,'w+') as out:
+        pickle.dump(obj,out)
+        out.close()
+
+def read_pickle(name):
+    with gopen('%s.pkl.gz' % name,'r') as fin:
+        obj = pickle.load(fin)
+        fin.close()
+    return obj
