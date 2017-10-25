@@ -58,8 +58,8 @@ def to_pickle(name,obj):
         pickle.dump(obj,out)
         out.close()
 
-def read_pickle(name):
+def read_pickle(name,**kwargs):
     with gopen('%s.pkl.gz' % name,'r') as fin:
-        obj = pickle.load(fin)
+        obj = pickle.load(fin,**kwargs)
         fin.close()
     return obj

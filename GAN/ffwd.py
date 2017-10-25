@@ -173,6 +173,7 @@ class FFGBuilder(Builder):
         output = cur
         
         # output = Dense(output_size,activation="relu",use_bias=True,name="%s_output" % self.name)(output)
+        reg = None
         if self.do_last_l1reg:
             reg = l1(self.do_last_l1reg)
         output = Dense(output_size,use_bias=True,name="%s_output" % self.name,kernel_regularizer=reg)(output)
