@@ -1,7 +1,7 @@
 #!/bin/bash
 
 notebook=$1 && shift 
-outdir=$1 && shift
+outdir=scratch/$1 && shift
 
 
 jnotebook=$(echo $outdir | sed 's%logs_%%;').ipynb
