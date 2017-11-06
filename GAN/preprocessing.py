@@ -39,7 +39,7 @@ def transform(data_x,data_c,mc_x,mc_c,transform='minmax',reshape=True,return_sca
     return data_x,data_c,mc_x,mc_c
 
 # ------------------------------------------------------------------------------------------------
-def reweight(mc,inputs,bins,weights,base=None):
+def reweight(mc,inputs,bins,weights,base=None,offset=True):
 
     def rewei(X):
         thebin = []
@@ -49,13 +49,20 @@ def reweight(mc,inputs,bins,weights,base=None):
         ## #ybin = max(0,min(weights.shape[1]-1,x[1]))
         ## #return weights[xbin,ybin]
         return weights[tuple(thebin)]
-
+    
     def discretize(df,col,bounds):
-        cmin = np.abs( df[col] ).min()
-        return pd.cut( (np.abs(df[col])-cmin)*np.sign(df[col]),
+        print('offset',offset)
+        print(bounds.shape)
+        if offset:
+            cmin = np.abs( df[col] ).min()
+            vals = (np.abs(df[col])-cmin)*np.sign(df[col])
+        else:
+            vals = df[col]
+        return pd.cut( vals,
                        bounds, labels=range(bounds.shape[0]-1) ).astype(np.int)
     
     tmp = pd.DataFrame(  { inp[0] : discretize(mc,inp[0],inp[1]) for inp in zip(inputs,bins) } )
+    print(tmp.describe())
     mc['train_weight'] = tmp[inputs].apply( rewei, axis=1, raw=True)
     if not base is None:
         mc['train_weight'] *= mc[base]
