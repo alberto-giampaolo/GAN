@@ -41,11 +41,16 @@ class MyApp(Application):
     config_file = Unicode(u'', 
                           help="Load this config file").tag(config=True)
     
-    def __init__(self):
+    def __init__(self,is_main=False):
 
         super(MyApp,self).__init__()
-
-        my_app_args=os.environ.get("MY_APP_ARGS","").split(" ")
+        
+        if is_main:
+            import sys
+            my_app_args=sys.argv
+        else:
+            my_app_args=os.environ.get("MY_APP_ARGS","").split(" ")
+        print(my_app_args)
         self.parse_command_line(my_app_args)
         if self.config_file:
             self.load_config_file(self.config_file)

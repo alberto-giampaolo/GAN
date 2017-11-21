@@ -51,8 +51,9 @@ def reweight(mc,inputs,bins,weights,base=None,offset=True):
         return weights[tuple(thebin)]
     
     def discretize(df,col,bounds):
-        print('offset',offset)
-        print(bounds.shape)
+        ## print('offset',offset)
+        ## print(bounds.shape)
+        ## print(col)
         if offset:
             cmin = np.abs( df[col] ).min()
             vals = (np.abs(df[col])-cmin)*np.sign(df[col])
@@ -60,14 +61,16 @@ def reweight(mc,inputs,bins,weights,base=None,offset=True):
             vals = df[col]
         return pd.cut( vals,
                        bounds, labels=range(bounds.shape[0]-1) ).astype(np.int)
-    
+
+    # print(inputs)
     tmp = pd.DataFrame(  { inp[0] : discretize(mc,inp[0],inp[1]) for inp in zip(inputs,bins) } )
-    print(tmp.describe())
-    mc['train_weight'] = tmp[inputs].apply( rewei, axis=1, raw=True)
+    ## mc['train_weight'] = tmp[inputs].apply( rewei, axis=1, raw=True)
+    sample_weights = tmp[inputs].apply( rewei, axis=1, raw=True)
     if not base is None:
-        mc['train_weight'] *= mc[base]
+        ## mc['train_weight'] *= mc[base]
+        sample_weights *= mc[base]
     
-    return mc['train_weight'].values
+    return sample_weights
 
 
 
